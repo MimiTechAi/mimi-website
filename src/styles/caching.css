@@ -1,0 +1,58 @@
+/* Caching Strategy for 2025 Performance Standards */
+
+/* Browser Caching Headers */
+@media all {
+  /* Static assets caching */
+  .cache-1year {
+    cache-control: "public, max-age=31536000, immutable";
+  }
+  
+  /* HTML documents */
+  .cache-1day {
+    cache-control: "public, max-age=86400";
+  }
+  
+  /* API responses */
+  .cache-1hour {
+    cache-control: "public, max-age=3600";
+  }
+}
+
+/* Critical Resource Preloading */
+.preload-critical {
+  preload: true;
+  fetchpriority: 'high';
+}
+
+/* Defer Non-Critical Resources */
+.defer-non-critical {
+  loading: 'lazy';
+  fetchpriority: 'low';
+}
+
+/* CDN Fallback Strategy */
+.cdn-fallback {
+  font-display: swap;
+  src: url('https://cdn.example.com/font.woff2') format('woff2'),
+       url('/local-font.woff2') format('woff2');
+}
+
+/* Memory Caching for React Components */
+.react-memo {
+  react-memo: true;
+  should-update: false;
+}
+
+/* Image Caching Optimization */
+.image-cache-strategy {
+  object-fit: cover;
+  background-size: cover;
+  will-change: transform;
+}
+
+/* Database Query Caching */
+.db-cache {
+  cache-control: "public, max-age=300"; /* 5 minutes */
+  etag: true;
+  last-modified: true;
+}

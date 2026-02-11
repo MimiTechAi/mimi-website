@@ -13,41 +13,72 @@ import { searchDocuments, loadDocuments, type PDFDocument, type PDFChunk, type P
 import { getVectorStore, type SearchResult as VectorSearchResult } from './vector-store';
 import { getOrchestrator, type AgentOrchestrator } from './agent-orchestrator';
 import { getMemoryManager, type MemoryManager } from './memory-manager';
+import { getToolDescriptionsForPrompt, parseToolCalls, executeToolCall } from './tool-definitions';
 
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
 }
 
-const SYSTEM_PROMPT = `
-Du bist MIMI, eine hochentwickelte KI für digitale Zwillinge und technologische Beratung.
+const SYSTEM_PROMPT = `Du bist MIMI, ein leistungsstarker lokaler KI-Agent von MIMI Tech AI. Du läufst 100% on-device — keine Cloud, keine Kosten, volle Privatsphäre.
 
-## DEINE VIRTUELLE UMGEBUNG (VIRTUAL COMPUTER)
-Du hast Zugriff auf einen **vollständigen virtuellen Computer** direkt im Browser. Nutze ihn aktiv für komplexe Aufgaben!
+## REGELN (IN DIESER REIHENFOLGE!)
 
-### 1. Python Sandbox (Pyodide)
-- Nutze Python für: Datenanalyse, Mathematik, Simulationen, Dateimanipulation.
-- Verfügbare Libraries: \`numpy\`, \`pandas\`, \`micropip\`.
-- Du kannst Pakete installieren: Erwähne dies dem User (z.B. "Ich installiere scikit-learn...").
-- Code-Blöcke: Schreibe Python-Code in \`\`\`python ... \`\`\`. Dieser wird automatisch ausgeführt.
+1. **DIREKT ANTWORTEN:** Bei Fragen, Grüßen, Erklärungen, Meinungen und Wissen antworte SOFORT in normalem Deutsch. Kein JSON, kein Tool, kein Code-Block — einfach eine hilfreiche Antwort schreiben.
 
-### 2. SQLite Datenbank (WASM)
-- Du hast eine lokale SQL-Datenbank.
-- Nutze sie für: Strukturierte Daten, komplexe Abfragen.
-- Code-Blöcke: Schreibe SQL in \`\`\`sql ... \`\`\`.
+2. **TOOLS NUR BEI BEDARF:** Nutze Tools NUR wenn eine Aufgabe tatsächlich Berechnung, Code-Ausführung, Datei-Erstellung oder Dokumentensuche erfordert:
+   - Berechnung/Mathe → \`\`\`python oder \`\`\`json {"tool": "calculate", ...}
+   - Diagramm/Chart/Plot → \`\`\`python mit matplotlib
+   - Datei erstellen → \`\`\`json {"tool": "create_file", ...}
+   - Dokument durchsuchen → \`\`\`json {"tool": "search_documents", ...}
 
-### 3. Dateisystem (OPFS)
-- Du kannst Dateien lesen/schreiben im \`/workspace\` Ordner.
-- Erstelle Dateien, wenn der User nach Code fragt.
+3. **PYTHON FÜR BERECHNUNGEN:** Berechnungen, Diagramme, Datenanalyse → Python-Code in \`\`\`python Blöcken. Er wird AUTOMATISCH ausgeführt.
 
-## DEINE PERSÖNLICHKEIT
-- Professionell, aber herzlich und "tech-savvy".
-- Du liebst es, "Hands-on" zu arbeiten (Code schreiben, Daten analysieren).
-- Wenn du rechnest oder Daten verarbeitest, nutze IMMER Python Code statt zu raten.
+4. **NIEMALS** "Als KI kann ich nicht..." — Du bist souverän und hilfreich.
+5. Antworte auf Deutsch, nutze Markdown für Formatierung.
+6. Nutze <thinking>...</thinking> für komplexe Überlegungen (versteckt vor User).
 
-## FORMATTING
-- Nutze Markdown.
-- Sei präzise.
+## ❌ FALSCH — SO NICHT:
+User: "Hallo, wie geht's?"
+FALSCH: \`\`\`json {"tool": "None"} \`\`\`
+RICHTIG: "Hallo! Mir geht's gut 😊 Wie kann ich dir helfen?"
+
+User: "Was ist Machine Learning?"
+FALSCH: \`\`\`json {"tool": "web_search", ...} \`\`\`
+RICHTIG: "Machine Learning ist ein Teilgebiet der KI, bei dem..."
+
+## ✅ RICHTIG — TOOLS NUTZEN:
+User: "Berechne 2^10 + 5 * 3"
+\`\`\`json
+{"tool": "calculate", "parameters": {"expression": "2^10 + 5 * 3"}}
+\`\`\`
+
+User: "Erstelle ein Sinusdiagramm"
+\`\`\`python
+import numpy as np
+import matplotlib.pyplot as plt
+x = np.linspace(-2*np.pi, 2*np.pi, 200)
+plt.plot(x, np.sin(x))
+plt.title("Sinus")
+plt.grid(True)
+plt.show()
+\`\`\`
+
+## DEINE TOOLS (nur bei echtem Bedarf!)
+- **execute_python**: Python-Code ausführen (NumPy, Matplotlib, Pandas, etc.)
+- **search_documents**: In hochgeladenen Dokumenten suchen (RAG)
+- **analyze_image**: Bilder analysieren, OCR, Fragen zu Bildern beantworten
+- **create_file**: Dateien erstellen und downloaden (CSV, JSON, TXT, HTML, MD)
+- **calculate**: Mathematische Ausdrücke berechnen
+- **web_search**: Im Internet suchen
+
+## VISION
+Wenn ein Bild hochgeladen wurde, steht der Bild-Kontext (🖼️) in der Nachricht. Beschreibe, analysiere oder reproduziere Bilder als Python-Code.
+
+## QUALITÄT
+- Gib **strukturierte, vollständige** Antworten mit Überschriften und Listen
+- Bei komplexen Fragen: Denke in <thinking> nach, dann antworte klar
+- Sei proaktiv: Biete Visualisierungen, Dateien, weiterführende Analysen an
 `;
 
 export interface AgentResponse {
@@ -93,6 +124,16 @@ export type AgentStatus =
  * MIMI Agent Engine V2.0
  * Nutzt Web Worker für non-blocking Inferenz mit Chain-of-Thought
  */
+/**
+ * Tool context passed from the UI layer so the engine can execute tools
+ */
+export interface ToolContext {
+    executePython?: (code: string) => Promise<string>;
+    searchDocuments?: (query: string, limit?: number) => Promise<any[]>;
+    analyzeImage?: (question: string) => Promise<any>;
+    createFile?: (type: string, content: string, filename?: string) => Promise<any>;
+}
+
 export class MimiEngine {
     private worker: Worker | null = null;
     private isReady = false;
@@ -102,18 +143,27 @@ export class MimiEngine {
     private statusCallback: StatusCallback | null = null;
     private agentOrchestrator: AgentOrchestrator;
     private memoryManager: MemoryManager;
-    private isGenerating = false; // NEW: Track generation state
+    private isGenerating = false;
+    private toolContext: ToolContext = {}; // Tool handlers from UI layer
+    private static MAX_TOOL_ITERATIONS = 3; // Prevent infinite tool loops
 
     constructor() {
-        // Initialize in constructor for browser environment
         if (typeof window !== 'undefined') {
             this.agentOrchestrator = getOrchestrator();
             this.memoryManager = getMemoryManager();
         } else {
-            // SSR fallback - will be initialized later
             this.agentOrchestrator = null as any;
             this.memoryManager = null as any;
         }
+    }
+
+    /**
+     * Set tool context from UI layer (Python executor, doc search, etc.)
+     * Must be called after init() for tools to work in the agentic loop.
+     */
+    setToolContext(context: ToolContext): void {
+        this.toolContext = context;
+        console.log('[MimiEngine] ✅ Tool context set:', Object.keys(context).filter(k => !!(context as any)[k]));
     }
 
     /**
@@ -167,6 +217,24 @@ export class MimiEngine {
                         clearTimeout(timeout);
                         this.isReady = true;
                         this.currentModel = modelId;
+
+                        // Register LLM in Memory Manager for accurate tracking
+                        try {
+                            const mm = getMemoryManager();
+                            const llmKey = modelId.toLowerCase().includes('vision')
+                                ? 'llm-phi35-vision'
+                                : modelId.includes('Phi-4') ? 'llm-phi4'
+                                    : modelId.includes('Qwen2.5-1.5B') ? 'llm-qwen25'
+                                        : modelId.includes('Phi-3.5') ? 'llm-phi35'
+                                            : modelId.includes('Qwen') ? 'llm-qwen'
+                                                : modelId.includes('Llama') ? 'llm-llama'
+                                                    : 'llm-phi35';
+                            mm.registerModel(llmKey);
+                            console.log(`[MIMI] 🧠 Memory Manager: LLM registriert als '${llmKey}'`);
+                        } catch (e) {
+                            console.warn('[MIMI] Memory Manager Registrierung fehlgeschlagen:', e);
+                        }
+
                         onProgress({ progress: 100, text: "MIMI ist bereit!" });
                         resolve();
                         break;
@@ -405,237 +473,25 @@ export class MimiEngine {
         }
     }
 
-    /**
-     * Generiert mit Auto-RAG
-     * Durchsucht automatisch Dokumente und fügt relevanten Kontext hinzu
-     */
-    async generateWithRAG(
-        messages: ChatMessage[],
-        options?: {
-            temperature?: number;
-            maxTokens?: number;
-            enableCoT?: boolean;
-        }
-    ): Promise<{ stream: AsyncGenerator<string>; getResult: () => Promise<AgentResponse> }> {
-        // Finde letzte User-Nachricht
-        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+    // [REMOVED] generateWithRAG + generateAgent — dead code, generate() handles everything
 
-        if (lastUserMessage) {
-            this.updateStatus('analyzing');
-            const ragContext = await this.enrichWithRAG(lastUserMessage.content);
-
-            if (ragContext) {
-                // Füge RAG-Kontext vor der letzten User-Nachricht ein
-                const enrichedMessages = messages.map((m, idx) => {
-                    if (m === lastUserMessage) {
-                        return {
-                            ...m,
-                            content: `${ragContext}\n\n**User-Frage:** ${m.content}`
-                        };
-                    }
-                    return m;
-                });
-
-                return this.generateAgent(enrichedMessages, options);
-            }
-        }
-
-        return this.generateAgent(messages, options);
-    }
 
     /**
-     * Generiert eine Agent-Antwort mit Chain-of-Thought
-     * UPDATED: Integriert Skills aus Skill Registry
+     * Internal: Single-shot LLM generation (no tool loop).
+     * Streams tokens, filters <thinking> blocks, yields visible text.
+     * Returns the full assembled response.
      */
-    async generateAgent(
-        messages: ChatMessage[],
-        options?: {
-            temperature?: number;
-            maxTokens?: number;
-            enableCoT?: boolean;
-            requireStructured?: boolean;
-        }
-    ): Promise<{ stream: AsyncGenerator<string>; getResult: () => Promise<AgentResponse> }> {
-        if (!this.worker || !this.isReady) {
-            throw new Error("Engine nicht initialisiert");
-        }
-
-        const enableCoT = options?.enableCoT ?? true;
-        // Get last user message for classification
-        const currentUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-
-        let primaryAgent: string = 'general';
-        let agentSkills: any[] = [];
-
-        // Agent Classification
-        try {
-            const classification = await this.agentOrchestrator.classifyTask(currentUserMessage);
-            primaryAgent = classification.primaryAgent;
-            agentSkills = classification.skills || [];
-
-            console.log(`[InferenceEngine] Agent: ${primaryAgent}, Skills: ${agentSkills.map((s: any) => s.metadata.name).join(', ')}`);
-        } catch (error) {
-            console.warn('[InferenceEngine] Classification failed, using general agent:', error);
-        }
-
-        // Get base system prompt for agent
-        let systemPrompt = SYSTEM_PROMPT + '\n\n' + this.agentOrchestrator.getAgentPrompt(primaryAgent);
-
-        // Add Sovereign Intelligence enhancements if CoT enabled
-        if (enableCoT) {
-            systemPrompt += '\n\n' + this.getSovereignIntelligencePrompt(enableCoT);
-        }
-
-        // NEW: Build collaborative context (includes skill injection)
-        const collaborativeContext = this.agentOrchestrator.buildCollaborativeContext(
-            primaryAgent,
-            agentSkills
-        );
-
-        // TOKEN BUDGET CHECK: Prevent silent context overflow
-        const systemTokens = systemPrompt.length / 4;  // Rough estimate: 4 chars ≈ 1 token
-        const contextTokens = collaborativeContext.length / 4;
-        const maxTokens = options?.maxTokens || 4096;
-
-        const totalEstimate = systemTokens + contextTokens;
-        const budgetUsage = (totalEstimate / maxTokens) * 100;
-
-        if (budgetUsage > 70) {
-            console.warn(
-                `[InferenceEngine] ⚠️ Token budget at ${budgetUsage.toFixed(0)}% ` +
-                `(${totalEstimate.toFixed(0)}/${maxTokens})`
-            );
-
-            if (budgetUsage > 90) {
-                console.error(
-                    '[InferenceEngine] 🚨 Token budget exceeded! ' +
-                    'Consider reducing RAG chunks or skill count.'
-                );
-            }
-        }
-
-        // Combine system prompt with collaborative context (includes skills)
-        systemPrompt += collaborativeContext;
-
-        // NEW: Regex Trigger System - Inject execution commands for action intents
-        const userMessage = messages[messages.length - 1]?.content || '';
-        const actionTrigger = this.detectActionIntent(userMessage);
-        if (actionTrigger) {
-            systemPrompt += actionTrigger;
-            console.log('[InferenceEngine] 🎯 Action trigger detected:', actionTrigger.trim());
-        }
-
-        const fullMessages: ChatMessage[] = [
-            { role: 'system', content: systemPrompt },
-            ...messages.filter(m => m.role !== 'system')
-        ];
-
-        // Streaming starten
-        const stream = this.streamGeneration(fullMessages, options);
-
-        // Result Parser
-        let fullResponse = '';
-        const getResult = async (): Promise<AgentResponse> => {
-            for await (const token of stream) {
-                fullResponse += token;
-            }
-
-            // NEW: Record skill usage for learning
-            if (agentSkills.length > 0 && typeof window !== 'undefined') {
-                const { getSkillRegistry } = await import('./skills');
-                const registry = getSkillRegistry();
-                const success = fullResponse.length > 50; // Simple heuristic
-                for (const skill of agentSkills) {
-                    registry.recordUsage(skill.metadata.name, success);
-                }
-            }
-
-            return this.parseAgentResponse(fullResponse);
-        };
-
-        // Clone stream für externe Nutzung
-        const streamClone = this.streamGeneration(fullMessages, options);
-
-        return { stream: streamClone, getResult };
-    }
-
-    /**
-     * Streaming-Generator für Antworten
-     * JETZT MIT AUTO-RAG: Durchsucht automatisch Dokumente!
-     */
-    async *generate(
-        messages: ChatMessage[],
-        options?: {
-            temperature?: number;
-            maxTokens?: number;
-        }
-    ): AsyncGenerator<string, void, unknown> {
-        if (!this.worker || !this.isReady) {
-            throw new Error("Engine nicht initialisiert");
-        }
-
+    private async *singleGeneration(
+        fullMessages: ChatMessage[],
+        options?: { temperature?: number; maxTokens?: number }
+    ): AsyncGenerator<string, string, unknown> {
         const id = `msg_${++this.messageId}`;
-
-        // AUTO-RAG: Enriche letzte User-Nachricht mit Dokument-Kontext
-        let enrichedMessages = [...messages];
-        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-
-        if (lastUserMessage) {
-            this.updateStatus('analyzing');
-            const ragContext = await this.enrichWithRAG(lastUserMessage.content);
-
-            if (ragContext) {
-                console.log('[MIMI] 📚 RAG-Kontext gefunden, bereichere Nachricht...');
-                enrichedMessages = messages.map(m =>
-                    m === lastUserMessage
-                        ? { ...m, content: `${ragContext}\n\n**Frage:** ${m.content}` }
-                        : m
-                );
-            }
-        }
-
-        // FULL AGENT PIPELINE (vorher fehlte SYSTEM_PROMPT + Agent-Routing!)
-        let primaryAgent = 'general';
-        try {
-            const classification = await this.agentOrchestrator.classifyTask(
-                lastUserMessage?.content || ''
-            );
-            primaryAgent = classification.primaryAgent;
-            console.log(`[MIMI] 🤖 Agent: ${primaryAgent}`);
-        } catch (e) {
-            // Fallback zu general
-        }
-
-        // Baue vollständigen System-Prompt: Identität + Agent + Regeln
-        let systemPrompt = SYSTEM_PROMPT
-            + '\n\n' + this.agentOrchestrator.getAgentPrompt(primaryAgent)
-            + '\n\n' + this.getSovereignIntelligencePrompt(true);
-
-        // Collaborative context (Skills, vorherige Agent-Outputs)
-        const collaborativeContext = this.agentOrchestrator.buildCollaborativeContext(primaryAgent);
-        if (collaborativeContext) {
-            systemPrompt += collaborativeContext;
-        }
-
-        // Action Trigger (Regex-basierte Intent-Erkennung)
-        const userMsg = messages[messages.length - 1]?.content || '';
-        const actionTrigger = this.detectActionIntent(userMsg);
-        if (actionTrigger) {
-            systemPrompt += actionTrigger;
-            console.log('[MIMI] 🎯 Action trigger:', actionTrigger.trim());
-        }
-
-        const fullMessages: ChatMessage[] = [
-            { role: 'system', content: systemPrompt },
-            ...enrichedMessages.filter(m => m.role !== 'system')
-        ];
-
-        this.updateStatus('thinking');
 
         const tokenQueue: string[] = [];
         let isDone = false;
         let isInThinking = false;
         let thinkingBuffer = '';
+        let fullResponse = '';
 
         this.messageHandlers.set(id, (data) => {
             if (data.type === "TOKEN") {
@@ -657,62 +513,48 @@ export class MimiEngine {
 
         try {
             let outputBuffer = '';
-            let pendingPartialTag = '';  // Für fragmentierte Tags wie "<think" ohne "ing>"
+            let pendingPartialTag = '';
 
             while (!isDone || tokenQueue.length > 0) {
                 if (tokenQueue.length > 0) {
                     const token = tokenQueue.shift()!;
                     outputBuffer += token;
 
-                    // CHUNK-RESILIENT TAG DETECTION
-                    // Problem: Tags können über mehrere Chunks fragmentiert sein
-                    // z.B. Chunk1: "<thin" + Chunk2: "king>"
-
-                    // 1. Prüfe auf fragmentierte Opening Tags
+                    // Chunk-resilient <thinking> tag detection
                     const potentialOpenTag = outputBuffer.match(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/);
                     if (potentialOpenTag && !isInThinking) {
-                        // Könnte ein fragmentierter <thinking> Tag sein - warte auf mehr
                         pendingPartialTag = potentialOpenTag[0];
                         outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
                     }
-
-                    // 2. Prüfe auf fragmentierte Closing Tags
                     const potentialCloseTag = outputBuffer.match(/<\/t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/);
                     if (potentialCloseTag && isInThinking) {
                         pendingPartialTag = potentialCloseTag[0];
                         outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
                     }
-
-                    // 3. Merge pending partial mit neuem Buffer
                     if (pendingPartialTag) {
                         outputBuffer = pendingPartialTag + outputBuffer;
                         pendingPartialTag = '';
                     }
 
-                    // CHAIN-OF-THOUGHT FILTERING
-                    // Verstecke <thinking>...</thinking> Blöcke
+                    // Chain-of-Thought filtering
                     while (outputBuffer.includes('<thinking>') || isInThinking) {
                         if (!isInThinking && outputBuffer.includes('<thinking>')) {
-                            // Alles VOR <thinking> sofort ausgeben
                             const beforeThinking = outputBuffer.split('<thinking>')[0];
-                            if (beforeThinking) yield beforeThinking;
-
+                            if (beforeThinking) {
+                                fullResponse += beforeThinking;
+                                yield beforeThinking;
+                            }
                             outputBuffer = outputBuffer.substring(outputBuffer.indexOf('<thinking>') + 10);
                             isInThinking = true;
                             this.updateStatus('analyzing');
                         }
-
                         if (isInThinking && outputBuffer.includes('</thinking>')) {
-                            // Thinking beenden
                             thinkingBuffer += outputBuffer.split('</thinking>')[0];
                             outputBuffer = outputBuffer.substring(outputBuffer.indexOf('</thinking>') + 11);
                             isInThinking = false;
                             this.updateStatus('generating');
-
-                            // Entferne führende Whitespace nach thinking
                             outputBuffer = outputBuffer.replace(/^\s*\n?/, '');
                         } else if (isInThinking) {
-                            // Noch im Thinking-Block - sammle aber nicht ausgeben
                             thinkingBuffer += outputBuffer;
                             outputBuffer = '';
                             break;
@@ -721,17 +563,16 @@ export class MimiEngine {
                         }
                     }
 
-                    // SMART STATUS DETECTION
+                    // Status detection + yield
                     if (!isInThinking && outputBuffer.length > 0) {
-                        // Erkennung verschiedener Content-Typen
                         if (outputBuffer.includes('```python') || outputBuffer.includes('```typescript')) {
                             this.updateStatus('coding');
-                        } else if (outputBuffer.includes('```json') && outputBuffer.includes('"plan"')) {
-                            this.updateStatus('planning');
+                        } else if (outputBuffer.includes('```json') && outputBuffer.includes('"tool"')) {
+                            this.updateStatus('analyzing');
                         } else if (/\d+[\+\-\*\/\=]/.test(outputBuffer)) {
                             this.updateStatus('calculating');
                         }
-
+                        fullResponse += outputBuffer;
                         yield outputBuffer;
                         outputBuffer = '';
                     }
@@ -740,35 +581,214 @@ export class MimiEngine {
                 }
             }
 
-            // Rest ausgeben (falls vorhanden)
             if (outputBuffer && !isInThinking) {
+                fullResponse += outputBuffer;
                 yield outputBuffer;
             }
-
-            // Pending partial tag ausgeben wenn nicht thinking-related
             if (pendingPartialTag && !pendingPartialTag.includes('thinking')) {
+                fullResponse += pendingPartialTag;
                 yield pendingPartialTag;
             }
-
-            this.updateStatus('idle');
         } finally {
             this.messageHandlers.delete(id);
         }
-    }
 
-    private async *streamGeneration(
-        messages: ChatMessage[],
-        options?: { temperature?: number; maxTokens?: number }
-    ): AsyncGenerator<string, void, unknown> {
-        yield* this.generate(messages, options);
+        return fullResponse;
     }
 
     /**
-     * Prüft ob ein Low-End Modell (Qwen-0.5B) geladen ist
+     * Streaming-Generator mit AGENTIC TOOL LOOP.
+     * 1. Build system prompt + RAG context
+     * 2. Generate LLM response
+     * 3. Parse tool calls from output
+     * 4. Execute tools, feed results back → re-generate (max 3 iterations)
+     * 5. Yield final visible text
+     */
+    async *generate(
+        messages: ChatMessage[],
+        options?: {
+            temperature?: number;
+            maxTokens?: number;
+        }
+    ): AsyncGenerator<string, void, unknown> {
+        if (!this.worker || !this.isReady) {
+            throw new Error("Engine nicht initialisiert");
+        }
+
+        this.isGenerating = true;
+
+        // AUTO-RAG: Enrich last user message with document context
+        let enrichedMessages = [...messages];
+        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+
+        if (lastUserMessage) {
+            this.updateStatus('analyzing');
+            const ragContext = await this.enrichWithRAG(lastUserMessage.content);
+            if (ragContext) {
+                console.log('[MIMI] 📚 RAG-Kontext gefunden');
+                enrichedMessages = messages.map(m =>
+                    m === lastUserMessage
+                        ? { ...m, content: `${ragContext}\n\n**Frage:** ${m.content}` }
+                        : m
+                );
+            }
+
+            // IMAGE CONTEXT: Inject vision analysis so LLM knows about the uploaded image
+            const imageCtx = this.agentOrchestrator?.getContext?.()?.imageContext;
+            if (imageCtx) {
+                console.log('[MIMI] 🖼️ Bild-Kontext gefunden');
+                const currentLastMsg = enrichedMessages.filter(m => m.role === 'user').pop();
+                if (currentLastMsg) {
+                    // If we have a multimodal model AND an uploaded image, pass the raw image data
+                    // The inference worker will convert it to image_url content blocks
+                    const uploadedImage = typeof window !== 'undefined' ? (window as any).__mimiUploadedImage : null;
+                    const isVision = this.isMultimodalModel();
+
+                    if (isVision && uploadedImage) {
+                        // MULTIMODAL: Pass raw base64 image — worker converts to image_url block
+                        console.log('[MIMI] 🖼️ Multimodal: Sende Bild direkt an VLM');
+                        enrichedMessages = enrichedMessages.map(m =>
+                            m === currentLastMsg
+                                ? { ...m, content: `${uploadedImage} ${m.content}` }
+                                : m
+                        );
+                    } else {
+                        // TEXT-ONLY: Inject description as text context
+                        enrichedMessages = enrichedMessages.map(m =>
+                            m === currentLastMsg
+                                ? { ...m, content: `🖼️ **Aktuelles Bild:**\n${imageCtx}\n\n${m.content}` }
+                                : m
+                        );
+                    }
+                }
+            }
+        }
+
+        // Agent classification
+        let primaryAgent = 'general';
+        try {
+            const classification = await this.agentOrchestrator.classifyTask(
+                lastUserMessage?.content || ''
+            );
+            primaryAgent = classification.primaryAgent;
+            console.log(`[MIMI] 🤖 Agent: ${primaryAgent}`);
+        } catch (e) {
+            // Fallback to general
+        }
+
+        // Build system prompt — LEAN: base + agent specialization + tools only
+        let systemPrompt = this.isLowEndModel()
+            ? this.getLitePrompt()
+            : SYSTEM_PROMPT + '\n\n' + this.agentOrchestrator.getAgentPrompt(primaryAgent);
+
+        // Collaborative context (Skills)
+        const collaborativeContext = this.agentOrchestrator.buildCollaborativeContext(primaryAgent);
+        if (collaborativeContext) {
+            systemPrompt += collaborativeContext;
+        }
+
+        // Tool descriptions
+        systemPrompt += '\n\n' + getToolDescriptionsForPrompt();
+
+        // Action trigger (regex-based intent detection)
+        const userMsg = messages[messages.length - 1]?.content || '';
+        const actionTrigger = this.detectActionIntent(userMsg);
+        if (actionTrigger) {
+            systemPrompt += actionTrigger;
+            console.log('[MIMI] 🎯 Action trigger:', actionTrigger.trim());
+        }
+
+        let fullMessages: ChatMessage[] = [
+            { role: 'system', content: systemPrompt },
+            ...enrichedMessages.filter(m => m.role !== 'system')
+        ];
+
+        this.updateStatus('thinking');
+
+        // ═══════════════════════════════════════════════════════════
+        // AGENTIC TOOL LOOP
+        // LLM generates → parse tool calls → execute → feed back → repeat
+        // ═══════════════════════════════════════════════════════════
+        let iteration = 0;
+
+        while (iteration < MimiEngine.MAX_TOOL_ITERATIONS) {
+            iteration++;
+            console.log(`[MIMI] 🔄 Generation iteration ${iteration}/${MimiEngine.MAX_TOOL_ITERATIONS}`);
+
+            // Run single LLM generation — collect full response for tool parsing
+            let fullResponse = '';
+            for await (const token of this.singleGeneration(fullMessages, options)) {
+                fullResponse += token;
+                yield token; // Stream to UI
+            }
+
+            // Parse for tool calls
+            const toolCalls = parseToolCalls(fullResponse);
+
+            if (toolCalls.length === 0) {
+                // No tool calls — we're done
+                console.log('[MIMI] ✅ No tool calls, generation complete');
+                break;
+            }
+
+            // Execute tool calls
+            console.log(`[MIMI] 🔧 Found ${toolCalls.length} tool call(s):`, toolCalls.map(t => t.tool));
+            this.updateStatus('calculating');
+
+            let toolResultsText = '';
+            for (const call of toolCalls) {
+                console.log(`[MIMI] ⚡ Executing: ${call.tool}(${JSON.stringify(call.parameters).slice(0, 100)})`);
+                yield `\n\n🔧 *Tool: ${call.tool}...*\n`;
+
+                try {
+                    const result = await executeToolCall(call, this.toolContext);
+                    toolResultsText += `\n\n**Tool-Ergebnis (${call.tool}):**\n${result.output}\n`;
+                    console.log(`[MIMI] ✅ ${call.tool}: ${result.success ? 'OK' : 'FAIL'}`);
+                } catch (e) {
+                    const errMsg = e instanceof Error ? e.message : String(e);
+                    toolResultsText += `\n\n**Tool-Fehler (${call.tool}):** ${errMsg}\n`;
+                    console.error(`[MIMI] ❌ ${call.tool} failed:`, e);
+                }
+            }
+
+            // Feed tool results back — append as user message with tool context
+            fullMessages = [
+                ...fullMessages,
+                { role: 'assistant', content: fullResponse },
+                { role: 'user', content: `[TOOL_RESULTS]\n${toolResultsText}\n\nNutze diese Ergebnisse um die ursprüngliche Frage zu beantworten. Antworte DIREKT basierend auf den Ergebnissen.` }
+            ];
+
+            // Yield separator before next iteration
+            yield '\n\n---\n\n';
+            this.updateStatus('thinking');
+        }
+
+        if (iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
+            console.warn('[MIMI] ⚠️ Max tool iterations reached');
+        }
+
+        this.isGenerating = false;
+        this.updateStatus('idle');
+    }
+
+    // [REMOVED] streamGeneration — was trivial delegate to generate()
+
+    /**
+     * Prüft ob ein Low-End Modell geladen ist
      * Low-End Modelle brauchen einen einfacheren Prompt ohne CoT
      */
     private isLowEndModel(): boolean {
-        return this.currentModel?.includes('Qwen2.5-0.5B') ?? false;
+        if (!this.currentModel) return false;
+        const m = this.currentModel.toLowerCase();
+        return m.includes('qwen2.5-0.5b') || m.includes('llama-3.2-1b');
+    }
+
+    /**
+     * Prüft ob ein multimodales Vision-Modell geladen ist (Phi-3.5-vision)
+     * Multimodale Modelle können Bilder direkt als Input verarbeiten
+     */
+    private isMultimodalModel(): boolean {
+        return this.currentModel?.toLowerCase().includes('vision') ?? false;
     }
 
     /**
@@ -828,105 +848,32 @@ Antworte KURZ und DIREKT.`;
             pdf: /pdf|dokument|document|report|bericht/i
         };
 
+        let result = '';
+
         for (const [action, pattern] of Object.entries(triggers)) {
             if (pattern.test(userMessage)) {
-                return `\n\n[🚨 CRITICAL TRIGGER: User wants ${action.toUpperCase()}!]\n[WRITE PYTHON CODE IN \`\`\`python BLOCK NOW - NO EXPLANATION FIRST!]\n`;
+                result = `\n\n[🚨 CRITICAL TRIGGER: User wants ${action.toUpperCase()}!]\n[WRITE PYTHON CODE IN \`\`\`python BLOCK NOW - NO EXPLANATION FIRST!]\n`;
+                break;
             }
         }
-        return '';
+
+        // BILD-ZU-CODE PIPELINE: If image is uploaded AND user wants reproduction/analysis
+        const hasImage = this.agentOrchestrator?.getContext?.()?.imageContext;
+        if (hasImage) {
+            const imageCodeTrigger = /reproduzier|nachbau|erstell.*chart|erstell.*diagramm|recreat|nachzeichn|mach.*daraus|konvertier|extrahier.*daten|daten.*extract|tabelle.*erstell|code.*bild|bild.*code/i;
+            if (imageCodeTrigger.test(userMessage)) {
+                result += `\n\n[🖼️→💻 BILD-ZU-CODE PIPELINE AKTIV!]
+[Du hast Zugriff auf die Bildbeschreibung. Nutze sie um Python-Code zu schreiben der das Bild als interaktives Matplotlib-Chart reproduziert.]
+[SCHRITTE: 1. Lies die Bildbeschreibung 2. Extrahiere Daten/Struktur 3. Schreibe Python mit matplotlib 4. plt.show()]
+[JETZT CODE SCHREIBEN!]\n`;
+            }
+        }
+
+        return result;
     }
 
-    /**
-     * SIMPLIFIED AGENT PROMPT - Optimized for Phi-3.5 Mini
-     * 50 lines, ultra-clear directives, action-first
-     */
-    private getSovereignIntelligencePrompt(enableCoT: boolean = true): string {
-        return `# YOU ARE AN AGENT WITH REAL TOOLS
+    // [REMOVED] getSovereignIntelligencePrompt — merged into SYSTEM_PROMPT
 
-## CRITICAL RULES (FOLLOW THESE!)
-
-### Rule 1: EXECUTE, DON'T EXPLAIN
-When user asks to CREATE something you CAN do → DO IT IMMEDIATELY!
-
-Examples:
-- "create a diagram" → Write Python code with matplotlib NOW
-- "analyze this data" → Write pandas code NOW  
-- "write code for X" → Generate working code NOW
-
-❌ NEVER say: "I cannot create...", "As an AI...", "Here's how YOU can..."
-✅ ALWAYS: Execute the task using your tools!
-
-### Rule 2: YOUR ACTIVE TOOLS
-
-**Python Execution:**
-- Libraries: pandas, numpy, matplotlib, seaborn, scipy
-- When to use: ANY request for diagrams, charts, calculations, data analysis
-- Just write the code in \`\`\`python blocks - it runs AUTOMATICALLY!
-
-**File Generation:**
-- Create PDFs, documents, reports
-- Format content and offer download
-
-**Document Search (RAG):**
-- Access user's uploaded files automatically
-- Extract relevant information
-
-### Rule 3: BE DIRECT
-
-Start responses with ACTION, not explanation:
-- ❌ "To create a diagram, you need to..."
-- ✅ \`\`\`python [code] \`\`\` "Here's your diagram!"
-
-${enableCoT ? `
-### Rule 4: INTERNAL THINKING (Optional)
-
-Use <thinking> tags for complex tasks:
-<thinking>
-1. What does user want?
-2. Which tool to use?
-3. Execute!
-</thinking>
-
-User won't see this - then act immediately!
-` : ''}
-
-## EXAMPLES
-
-**User:** "erstell ein finanzdiagramm"
-**You:** 
-\`\`\`python
-import matplotlib.pyplot as plt
-import numpy as np
-
-categories = ['Einnahmen', 'Ausgaben', 'Gewinn']
-values = [50000, 30000, 20000]
-
-plt.figure(figsize=(10, 6))
-plt.bar(categories, values, color=['green', 'red', 'blue'])
-plt.title('Finanzübersicht')
-plt.ylabel('Betrag (€)')
-plt.show()
-\`\`\`
-
-"Hier ist dein Finanzdiagramm!"
-
----
-
-**User:** "kannst du mir helfen?"
-**You:** "Ja! Ich kann Python ausführen, Diagramme erstellen, Daten analysieren und Dokumente durchsuchen. Was brauchst du?"
-
----
-
-## YOUR IDENTITY
-
-You are **MIMI**, a local AI agent running 100% on-device.
-- Speak German by default
-- Be helpful and direct
-- Use your tools proactively
-- Never pretend you can't do something you CAN do!
-
-**REMEMBER: You're an AGENT, not a tutorial bot. ACT, don't just advise!**`;
-    }
 
     /**
      * Parst Agent-Antwort und extrahiert Artefakte
@@ -977,6 +924,16 @@ You are **MIMI**, a local AI agent running 100% on-device.
      * Beendet die Engine
      */
     terminate(): void {
+        // Unregister LLM from Memory Manager
+        try {
+            const mm = getMemoryManager();
+            // Unregister all possible LLM keys
+            ['llm-phi35-vision', 'llm-phi4', 'llm-phi35', 'llm-qwen25', 'llm-phi3', 'llm-llama', 'llm-qwen']
+                .forEach(key => mm.unregisterModel(key));
+        } catch (e) {
+            // Memory manager may not exist
+        }
+
         if (this.worker) {
             this.worker.terminate();
             this.worker = null;

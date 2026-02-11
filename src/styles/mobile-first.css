@@ -1,0 +1,107 @@
+/* Mobile-First Touch Target Optimizations (2025 Standards) */
+
+/* Base touch target sizes for all interactive elements */
+.btn-touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 12px 16px;
+}
+
+/* Enhanced mobile touch targets */
+@media (max-width: 768px) {
+  .btn-touch-target {
+    min-height: 48px;
+    min-width: 48px;
+    padding: 14px 20px;
+    font-size: 16px;
+  }
+  
+  /* Larger spacing between touch targets */
+  .touch-target-spacing > * + * {
+    margin-top: 12px;
+  }
+  
+  /* Improved tap areas for navigation */
+  .nav-touch-target {
+    padding: 16px;
+    min-height: 48px;
+  }
+  
+  /* Enhanced button sizes for critical actions */
+  .btn-primary-mobile {
+    min-height: 52px;
+    padding: 16px 24px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+}
+
+/* Focus management for keyboard navigation */
+.focus-visible:focus {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .btn-touch-target {
+    border: 2px solid currentColor;
+  }
+  
+  .focus-visible:focus {
+    outline-width: 3px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Improved text readability on mobile */
+@media (max-width: 768px) {
+  body {
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.75rem; }
+  h3 { font-size: 1.5rem; }
+  h4 { font-size: 1.25rem; }
+}
+
+/* Mobile viewport optimizations */
+@viewport {
+  width: device-width;
+  initial-scale: 1;
+  maximum-scale: 5;
+  user-scalable: yes;
+}
+
+/* Safe area handling for modern phones */
+.safe-area-padding {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Improved hover states for touch devices */
+@media (hover: hover) {
+  .btn-touch-target:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+}
+
+@media (hover: none) {
+  .btn-touch-target:active {
+    transform: scale(0.98);
+    opacity: 0.8;
+  }
+}

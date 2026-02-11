@@ -1,0 +1,674 @@
+/* Syntax Highlighting - One Dark Theme */
+@import 'highlight.js/styles/atom-one-dark.css';
+
+/* Terminal - xterm.js (MIMI Workspace) */
+@import '@xterm/xterm/css/xterm.css';
+
+/* KaTeX for LaTeX Math - MUST be before tailwind */
+@import 'katex/dist/katex.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================
+   ACCESSIBILITY - Focus & Skip-to-Content
+   ========================================== */
+
+/* Skip to Main Content Link (Screen Reader + Keyboard Accessible) */
+.skip-to-content {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, var(--brand-cyan) 0%, var(--nvidia-green) 100%);
+  color: #000;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  box-shadow: 0 4px 20px rgba(0, 255, 255, 0.4);
+  transition: top 0.3s ease;
+}
+
+.skip-to-content:focus-visible {
+  top: 1rem;
+}
+
+/* Global Focus-Visible Styles (WCAG AAA) */
+*:focus-visible:not(:where(a,
+    button,
+    input,
+    textarea,
+    select,
+    summary,
+    [role="button"],
+    [role="menuitem"],
+    [role="tab"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [tabindex]:not([tabindex="-1"]))) {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* Enhanced Focus for Interactive Elements */
+:where(a,
+  button,
+  input,
+  textarea,
+  select,
+  summary,
+  [role="button"],
+  [role="menuitem"],
+  [role="tab"],
+  [role="checkbox"],
+  [role="radio"],
+  [role="switch"],
+  [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 5px hsla(187, 100%, 50%, 0.45);
+  border-radius: 4px;
+}
+
+/* Focus for Navigation Links */
+nav :where(a, button, [role="link"]):focus-visible {
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 6px hsla(187, 100%, 50%, 0.55);
+}
+
+/* ==========================================
+   TYPOGRAPHY SCALE - Professional Design System (FAANG-Level)
+   Inspired by Google Material, Apple HIG, Vercel
+   ========================================== */
+
+/* Display - Hero Sections (Homepage, Landing Pages) */
+.heading-display {
+  @apply text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-extrabold leading-[1.05] tracking-tight;
+}
+
+/* Hero - Main Page Titles */
+.heading-hero {
+  @apply text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-extrabold leading-[1.1] tracking-tight;
+}
+
+/* Page Title - Section Headers */
+.heading-page {
+  @apply text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold leading-tight tracking-tight;
+}
+
+/* Section - Major Content Divisions */
+.heading-section {
+  @apply text-3xl sm:text-4xl md:text-5xl font-bold leading-tight;
+}
+
+/* Subsection - Component Headers */
+.heading-subsection {
+  @apply text-2xl sm:text-3xl md:text-4xl font-bold leading-snug;
+}
+
+/* Card Title - Card Components */
+.heading-card {
+  @apply text-xl md:text-2xl font-semibold leading-snug;
+}
+
+/* Body Text Variants */
+.body-large {
+  @apply text-lg md:text-xl leading-relaxed;
+}
+
+.body-base {
+  @apply text-base md:text-lg leading-relaxed;
+}
+
+.body-small {
+  @apply text-sm md:text-base leading-relaxed;
+}
+
+/* Text Gradient Utilities - Premium Brand Colors (Updated with exact cyan) */
+.text-gradient {
+  background: linear-gradient(to right, var(--mimi-cyan-primary), hsl(76, 100%, 36%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-gradient-alt {
+  background: linear-gradient(to right, hsl(76, 100%, 36%), var(--mimi-cyan-primary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ========================================== */
+
+
+:root {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --radius: 0.75rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* ==========================================
+     Spacing Scale (8px-based) — Design System v2
+     ========================================== */
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+  --space-20: 5rem;     /* 80px */
+  --space-24: 6rem;     /* 96px */
+
+  /* ==========================================
+     MiMi Brand Colors - From Logo (Design System v2)
+     ========================================== */
+
+  /* Primary Cyan - Exact from Logo */
+  --mimi-cyan-primary: rgb(0, 230, 255);
+  /* #00E6FF - Exact logo color */
+  --mimi-cyan-primary-hsl: hsl(187, 100%, 50%);
+
+  /* Cyan Variations */
+  --mimi-cyan-glow: rgb(0, 255, 255);
+  /* Brighter for glow effects */
+  --mimi-cyan-dark: rgb(0, 180, 200);
+  /* Darker variant */
+  --mimi-cyan-hover: rgb(0, 205, 235);
+  /* Hover state */
+  --mimi-cyan-light: rgb(102, 243, 255);
+  /* Light variant */
+
+  /* Secondary Brand Color — NVIDIA Green */
+  --nvidia-green: #76B900;
+
+  /* Accent Gradient — Brand Blue */
+  --brand-blue: hsl(200, 95%, 55%);
+  --brand-blue-light: hsl(200, 95%, 65%);
+
+  /* DEPRECATED — Legacy Aliases (Remove in v3.0) */
+  --brand-cyan: var(--mimi-cyan-primary);
+  --brand-deep-void: var(--bg-void);
+  --mimi-cyan: var(--mimi-cyan-primary);
+
+  /* ==========================================
+     Dark Theme Base - Design System v2
+     Almost black backgrounds with cyan accents
+     ========================================== */
+
+  /* Backgrounds */
+  --bg-void: hsl(220, 20%, 5%);
+  /* Almost black - main background */
+  --bg-surface: hsl(220, 18%, 8%);
+  /* Slightly lighter surfaces */
+  --bg-elevated: hsl(220, 16%, 12%);
+  /* Cards, modals */
+  --bg-hover: hsl(220, 14%, 15%);
+  /* Hover states */
+
+  /* Text Colors */
+  --text-primary: hsl(0, 0%, 98%);
+  /* Main text - pure white */
+  --text-secondary: hsl(220, 5%, 70%);
+  /* Secondary text */
+  --text-tertiary: hsl(220, 5%, 50%);
+  /* Tertiary, disabled */
+  --text-cyan: var(--mimi-cyan-primary);
+  /* Accent text */
+
+  /* Borders & Lines */
+  --border-subtle: hsl(220, 15%, 20%);
+  /* Subtle borders */
+  --border-cyan: var(--mimi-cyan-primary);
+  /* Cyan borders */
+
+  /* Shadows - Dark Theme */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+
+  /* Glows - Cyan Theme */
+  --glow-cyan: 0 0 24px rgba(0, 230, 255, 0.4);
+  --glow-cyan-intense: 0 0 48px rgba(0, 230, 255, 0.6);
+  --shadow-cyan: 0 0 32px rgba(0, 230, 255, 0.3);
+
+  /* Legacy Glow (keeping for compatibility) */
+  --glow-green: 0 0 20px rgba(118, 185, 0, 0.3);
+
+  /* Gradients - Updated with exact cyan */
+  --gradient-hero: linear-gradient(135deg, var(--mimi-cyan-primary) 0%, #76B900 100%);
+  --gradient-card: linear-gradient(135deg, rgba(0, 230, 255, 0.1) 0%, rgba(118, 185, 0, 0.1) 100%);
+  --gradient-hover: linear-gradient(135deg, rgba(0, 230, 255, 0.2) 0%, rgba(118, 185, 0, 0.2) 100%);
+  --gradient-cyan: linear-gradient(135deg, var(--mimi-cyan-primary) 0%, var(--mimi-cyan-light) 100%);
+
+  /* ==========================================
+     Shadcn UI Design Tokens
+     Mapped to our dark theme
+     ========================================== */
+  --background: var(--bg-void);
+  --foreground: var(--text-primary);
+
+  --card: var(--bg-elevated);
+  --card-foreground: var(--text-primary);
+
+  --popover: var(--bg-elevated);
+  --popover-foreground: var(--text-primary);
+
+  --primary: var(--mimi-cyan-primary);
+  --primary-foreground: hsl(220, 20%, 5%);
+  /* Dark text on cyan */
+
+  --secondary: var(--bg-elevated);
+  --secondary-foreground: var(--text-primary);
+
+  --muted: var(--bg-surface);
+  --muted-foreground: var(--text-secondary);
+
+  --accent: var(--mimi-cyan-primary);
+  --accent-foreground: hsl(220, 20%, 5%);
+
+  --destructive: hsl(358, 75%, 60%);
+  --destructive-foreground: var(--text-primary);
+
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--mimi-cyan-primary);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* ==========================================
+   PREMIUM GLASSMORPHISM - 2025 visionOS Style
+   ========================================== */
+
+.glass-premium {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 230, 255, 0.1),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.5s cubic-bezier(0.25, 0.4, 0.25, 1);
+}
+
+.glass-premium:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(0, 230, 255, 0.3);
+  box-shadow:
+    var(--shadow-cyan),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
+  transform: scale(1.02);
+}
+
+/* Premium Card Gradient Overlay */
+.card-gradient-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.05) 0%, transparent 50%, rgba(118, 185, 0, 0.05) 100%);
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+.group:hover .card-gradient-overlay {
+  opacity: 1;
+}
+
+/* Shimmer Effect for Buttons (Pseudo-element version) */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+
+.btn-shimmer:hover::after {
+  transform: translateX(100%);
+}
+
+/* ==========================================
+   PREMIUM BUTTON SYSTEM - Vercel-Inspired
+   Professional Hover Effects & Micro-interactions
+   ========================================== */
+
+/* Primary Button - Brand Cyan (Updated) */
+.btn-primary {
+  background: var(--mimi-cyan-primary);
+  color: hsl(220, 20%, 5%);
+  /* Dark text on cyan for maximum contrast */
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-primary:hover {
+  background: var(--mimi-cyan-hover);
+  box-shadow: var(--glow-cyan);
+  transform: scale(1.02);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+/*  Glow Effects - Interactive States */
+.btn-glow {
+  transition: all 0.3s ease;
+}
+
+.btn-glow:hover {
+  box-shadow: 0 0 25px rgba(0, 255, 255, 0.4);
+}
+
+.btn-glow-green {
+  transition: all 0.3s ease;
+}
+
+.btn-glow-green:hover {
+  box-shadow: 0 0 25px rgba(118, 185, 0, 0.4);
+}
+
+/* Pulse Animation - Call-to-Action */
+.btn-pulse {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-subtle {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.92;
+    transform: scale(0.99);
+  }
+}
+
+/* Focus Ring - WCAG AAA Compliance */
+.focus-ring {
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.focus-ring:focus-visible {
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 5px hsla(187, 100%, 50%, 0.45);
+}
+
+/* ==========================================
+   PREMIUM CARD EFFECTS - Apple-Inspired
+   ========================================== */
+
+/* Card Lift Effect */
+.card-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+/* Card Spotlight Effect */
+.card-spotlight {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-spotlight::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle,
+      rgba(0, 255, 255, 0.1) 0%,
+      transparent 50%);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.card-spotlight:hover::before {
+  opacity: 1;
+}
+
+/* ========================================== */
+
+
+/* 3D Perspective Utilities */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+/* Image Hover Zoom */
+.image-hover-zoom {
+  transition: transform 0.5s cubic-bezier(0.25, 0.4, 0.25, 1);
+}
+
+.group:hover .image-hover-zoom {
+  transform: scale(1.1);
+}
+
+/* Gradient Animation for Typography */
+@keyframes gradient-shift {
+
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+/* Premium Shadow Utilities */
+.shadow-premium {
+  box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.15);
+}
+
+.shadow-premium-hover {
+  box-shadow: 0 20px 60px 0 rgba(0, 240, 255, 0.25);
+}
+
+/* ==========================================
+   REST OF EXISTING CSS (keeping all original styles)
+   ========================================== */
+
+/* Aurora Gradient Background (Hybrid Living Background System) */
+.aurora-gradient {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 230, 255, 0.12), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 60%, rgba(0, 180, 200, 0.08), transparent),
+    radial-gradient(ellipse 60% 70% at 20% 80%, rgba(0, 230, 255, 0.05), transparent),
+    linear-gradient(180deg, hsl(220, 20%, 5%) 0%, hsl(220, 20%, 3%) 100%);
+  animation: aurora-shift 20s ease-in-out infinite;
+}
+
+@keyframes aurora-shift {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: translateY(-20px) scale(1.05);
+  }
+}
+
+/* Grainy Texture Overlay */
+.grainy-texture {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.015) 0px, transparent 1px, transparent 2px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.015) 0px, transparent 1px, transparent 2px);
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/* Navigation Enhancements */
+.nav-glass {
+  background: rgba(10, 10, 10, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Spotlight Card (with mesh gradient interaction) */
+.spotlight-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.015) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.spotlight-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 1rem;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.05) 0%, rgba(118, 185, 0, 0.05) 100%);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.spotlight-card:hover::before {
+  opacity: 1;
+}
+
+.spotlight-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 240, 255, 0.1);
+}
+
+/* Contact Form Styling */
+input,
+textarea,
+select {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--brand-cyan);
+}
+
+/* Button Premium Styling */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Loading Spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

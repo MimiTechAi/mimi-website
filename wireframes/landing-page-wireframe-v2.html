@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiMi Tech AI – Wireframe v2 (UX-Optimiert)</title>
+    <style>
+        /* ===== DESIGN TOKENS ===== */
+        :root {
+            /* Primitive */
+            --cyan-500: rgb(0, 230, 255);
+            --cyan-400: rgb(102, 243, 255);
+            --cyan-glow: rgba(0, 230, 255, 0.4);
+            --green-500: #76B900;
+            --green-glow: rgba(118, 185, 0, 0.3);
+            --void-950: hsl(220, 20%, 3%);
+            --void-900: hsl(220, 20%, 5%);
+            --void-800: hsl(220, 18%, 8%);
+            --void-700: hsl(220, 16%, 12%);
+            --void-600: hsl(220, 14%, 15%);
+            --white-95: hsl(0, 0%, 95%);
+            --white-70: hsl(220, 5%, 70%);
+            --white-50: hsl(220, 5%, 50%);
+            --white-10: rgba(255, 255, 255, 0.1);
+            --white-05: rgba(255, 255, 255, 0.05);
+            --white-03: rgba(255, 255, 255, 0.03);
+
+            /* Semantic */
+            --brand-primary: var(--cyan-500);
+            --brand-secondary: var(--green-500);
+            --bg-base: var(--void-900);
+            --bg-surface: var(--void-800);
+            --bg-elevated: var(--void-700);
+            --text-primary: var(--white-95);
+            --text-secondary: var(--white-70);
+            --text-tertiary: var(--white-50);
+            --border-subtle: hsl(220, 15%, 20%);
+
+            /* Motion */
+            --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+            --ease-spring: cubic-bezier(0.4, 0, 0.2, 1);
+            --duration-fast: 150ms;
+            --duration-normal: 300ms;
+            --duration-slow: 600ms;
+
+            /* Spacing (8px grid) */
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            --space-12: 3rem;
+            --space-16: 4rem;
+            --space-20: 5rem;
+            --space-24: 6rem;
+
+            /* Radius */
+            --radius-sm: 0.5rem;
+            --radius-md: 0.75rem;
+            --radius-lg: 1rem;
+            --radius-xl: 1.5rem;
+        }
+
+        /* ===== RESET ===== */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* ===== ATOMS ===== */
+
+        /* Atom: SectionLabel */
+        .section-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--brand-primary);
+            margin-bottom: var(--space-3);
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+
+        .section-label::before {
+            content: '';
+            width: 24px;
+            height: 2px;
+            background: var(--brand-primary);
+            border-radius: 1px;
+        }
+
+        /* Atom: GradientText */
+        .gradient-text {
+            background: linear-gradient(135deg, var(--cyan-500), var(--green-500));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        /* Atom: GlowDot */
+        .glow-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green-500);
+            box-shadow: 0 0 12px var(--green-glow);
+            animation: pulse-dot 2s infinite;
+            display: inline-block;
+        }
+
+        @keyframes pulse-dot {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.6;
+                transform: scale(0.8);
+            }
+        }
+
+        /* Atom: Button (Primary) */
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-3) var(--space-8);
+            background: var(--brand-primary);
+            color: var(--void-900);
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all var(--duration-normal) var(--ease-spring);
+            text-decoration: none;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s ease;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 0 30px var(--cyan-glow);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary:hover::after {
+            transform: translateX(100%);
+        }
+
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+
+        /* Atom: Button (Ghost) */
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-3) var(--space-8);
+            background: transparent;
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 1rem;
+            border: 1px solid var(--white-10);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all var(--duration-normal) var(--ease-spring);
+            text-decoration: none;
+        }
+
+        .btn-ghost:hover {
+            border-color: var(--brand-primary);
+            background: rgba(0, 230, 255, 0.05);
+            color: var(--brand-primary);
+        }
+
+        /* Atom: TrustBadge */
+        .trust-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-1) var(--space-3);
+            background: var(--white-05);
+            border: 1px solid var(--white-10);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all var(--duration-normal) var(--ease-spring);
+        }
+
+        .trust-badge:hover {
+            background: rgba(0, 230, 255, 0.08);
+            border-color: rgba(0, 230, 255, 0.3);
+            color: var(--text-primary);
+        }
+
+        .trust-badge .badge-icon {
+            font-size: 0.9rem;
+        }
+
+        /* ===== MOLECULES ===== */
+
+        /* Molecule: SpotlightCard */
+        .spotlight-card {
+            position: relative;
+            background: var(--white-03);
+            border: 1px solid var(--white-05);
+            border-radius: var(--radius-lg);
+            padding: var(--space-8);
+            overflow: hidden;
+            transition: all var(--duration-normal) var(--ease-spring);
+            cursor: default;
+        }
+
+        .spotlight-card::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: var(--radius-lg);
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(0, 230, 255, 0.15), rgba(118, 185, 0, 0.15));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity var(--duration-normal);
+        }
+
+        .spotlight-card:hover {
+            border-color: var(--white-10);
+            background: var(--white-05);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 230, 255, 0.08);
+        }
+
+        .spotlight-card:hover::before {
+            opacity: 1;
+        }
+
+        .card-icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-md);
+            font-size: 1.5rem;
+            margin-bottom: var(--space-4);
+            transition: box-shadow var(--duration-normal);
+        }
+
+        .card-icon.cyan {
+            background: rgba(0, 230, 255, 0.1);
+            color: var(--cyan-500);
+        }
+
+        .card-icon.green {
+            background: rgba(118, 185, 0, 0.1);
+            color: var(--green-500);
+        }
+
+        .spotlight-card:hover .card-icon.cyan {
+            box-shadow: 0 0 20px var(--cyan-glow);
+        }
+
+        .spotlight-card:hover .card-icon.green {
+            box-shadow: 0 0 20px var(--green-glow);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+            color: var(--text-primary);
+        }
+
+        .card-desc {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: var(--space-4);
+        }
+
+        .card-features {
+            list-style: none;
+            margin-bottom: var(--space-4);
+        }
+
+        .card-features li {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            padding: var(--space-1) 0;
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+
+        .card-features li::before {
+            content: '›';
+            color: var(--brand-primary);
+            font-weight: 700;
+        }
+
+        .card-link {
+            font-size: 0.875rem;
+            color: var(--brand-primary);
+            text-decoration: none;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-1);
+            transition: gap var(--duration-fast);
+        }
+
+        .card-link:hover {
+            gap: var(--space-2);
+        }
+
+        /* Molecule: Process Step */
+        .process-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            position: relative;
+            flex: 1;
+        }
+
+        .step-number {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: rgba(0, 230, 255, 0.1);
+            border: 2px solid rgba(0, 230, 255, 0.3);
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--brand-primary);
+            margin-bottom: var(--space-3);
+            transition: all var(--duration-normal);
+        }
+
+        .process-step:hover .step-number {
+            background: var(--brand-primary);
+            color: var(--void-900);
+            box-shadow: 0 0 20px var(--cyan-glow);
+        }
+
+        .step-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: var(--space-1);
+        }
+
+        .step-desc {
+            font-size: 0.85rem;
+            color: var(--text-tertiary);
+        }
+
+        .step-connector {
+            position: absolute;
+            top: 24px;
+            left: calc(50% + 30px);
+            width: calc(100% - 60px);
+            height: 2px;
+            background: linear-gradient(90deg, rgba(0, 230, 255, 0.3), rgba(118, 185, 0, 0.3));
+        }
+
+        /* Molecule: CTAGroup */
+        .cta-group {
+            display: flex;
+            gap: var(--space-4);
+            flex-wrap: wrap;
+        }
+
+        /* ===== ORGANISMS ===== */
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 var(--space-6);
+        }
+
+        section {
+            padding: var(--space-20) 0;
+            position: relative;
+        }
+
+        /* Organism: Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(10, 10, 10, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--white-05);
+            padding: var(--space-3) 0;
+        }
+
+        .nav-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-logo {
+            font-size: 1.2rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+
+        .nav-logo span:first-child {
+            color: var(--brand-primary);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: var(--space-6);
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color var(--duration-fast);
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+        }
+
+        .nav-links a.active {
+            color: var(--brand-primary);
+        }
+
+        .nav-links a.active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--brand-primary);
+            border-radius: 1px;
+        }
+
+        .nav-cta {
+            padding: var(--space-2) var(--space-4) !important;
+            font-size: 0.85rem !important;
+        }
+
+        /* Component annotations */
+        .annotation {
+            position: absolute;
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--void-900);
+            background: var(--brand-primary);
+            padding: 2px 6px;
+            border-radius: 3px;
+            z-index: 50;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity var(--duration-fast);
+            white-space: nowrap;
+        }
+
+        .annotated:hover .annotation {
+            opacity: 1;
+        }
+
+        .annotated {
+            position: relative;
+        }
+
+        /* Organism: Hero */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding-top: calc(60px + var(--space-12));
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-bg {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 230, 255, 0.08), transparent),
+                radial-gradient(ellipse 60% 50% at 80% 60%, rgba(118, 185, 0, 0.04), transparent);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 10;
+            max-width: 800px;
+        }
+
+        .hero-trust-pills {
+            display: flex;
+            gap: var(--space-2);
+            margin-bottom: var(--space-8);
+            flex-wrap: wrap;
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: var(--space-6);
+            letter-spacing: -0.02em;
+        }
+
+        .hero-sub {
+            font-size: clamp(1rem, 2vw, 1.25rem);
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-bottom: var(--space-8);
+            line-height: 1.7;
+        }
+
+        .scroll-indicator {
+            position: absolute;
+            bottom: var(--space-8);
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: var(--space-2);
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+            animation: bounce-down 2s infinite;
+        }
+
+        @keyframes bounce-down {
+
+            0%,
+            100% {
+                transform: translateX(-50%) translateY(0);
+            }
+
+            50% {
+                transform: translateX(-50%) translateY(8px);
+            }
+        }
+
+        /* Organism: Trust Bar */
+        .trust-bar {
+            padding: var(--space-8) 0;
+            border-top: 1px solid var(--white-05);
+            border-bottom: 1px solid var(--white-05);
+            background: var(--white-03);
+        }
+
+        .trust-bar-inner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: var(--space-12);
+            flex-wrap: wrap;
+        }
+
+        .trust-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            transition: color var(--duration-normal);
+        }
+
+        .trust-item:hover {
+            color: var(--text-primary);
+        }
+
+        .trust-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            font-size: 1.2rem;
+        }
+
+        .trust-icon.nvidia {
+            background: rgba(118, 185, 0, 0.1);
+            color: var(--green-500);
+        }
+
+        .trust-icon.shield {
+            background: rgba(0, 230, 255, 0.1);
+            color: var(--cyan-500);
+        }
+
+        .trust-icon.cert {
+            background: rgba(0, 230, 255, 0.1);
+            color: var(--cyan-500);
+        }
+
+        .trust-icon.region {
+            background: rgba(118, 185, 0, 0.08);
+            color: var(--green-500);
+        }
+
+        .trust-item:hover .trust-icon.nvidia {
+            box-shadow: 0 0 16px var(--green-glow);
+        }
+
+        .trust-item:hover .trust-icon.shield {
+            box-shadow: 0 0 16px var(--cyan-glow);
+        }
+
+        /* Organism: Services Grid */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-6);
+        }
+
+        /* Organism: USP Section */
+        .usp-highlight {
+            background: linear-gradient(135deg, rgba(118, 185, 0, 0.05), rgba(0, 230, 255, 0.05));
+            border: 1px solid rgba(118, 185, 0, 0.2);
+            border-radius: var(--radius-xl);
+            padding: var(--space-8);
+            display: flex;
+            align-items: center;
+            gap: var(--space-8);
+            margin-bottom: var(--space-8);
+            transition: all var(--duration-normal);
+        }
+
+        .usp-highlight:hover {
+            border-color: rgba(118, 185, 0, 0.4);
+            box-shadow: 0 0 40px rgba(118, 185, 0, 0.1);
+        }
+
+        .nvidia-badge-large {
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            flex-shrink: 0;
+            background: rgba(118, 185, 0, 0.1);
+            border-radius: var(--radius-lg);
+        }
+
+        /* Comparison Table */
+        .comparison-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            border: 1px solid var(--white-10);
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: var(--space-3) var(--space-4);
+            text-align: left;
+            border-bottom: 1px solid var(--white-05);
+        }
+
+        .comparison-table thead th {
+            background: var(--void-700);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+
+        .comparison-table thead th:nth-child(2) {
+            color: var(--brand-primary);
+        }
+
+        .comparison-table tbody tr {
+            transition: background var(--duration-fast);
+        }
+
+        .comparison-table tbody tr:hover {
+            background: var(--white-03);
+        }
+
+        .comparison-table td {
+            font-size: 0.9rem;
+        }
+
+        .check {
+            color: var(--green-500);
+            font-weight: 700;
+        }
+
+        .cross {
+            color: var(--text-tertiary);
+        }
+
+        /* Organism: Audience Grid */
+        .audience-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-6);
+        }
+
+        /* Organism: Process */
+        .process-grid {
+            display: flex;
+            gap: var(--space-4);
+        }
+
+        /* Organism: Final CTA */
+        .final-cta {
+            text-align: center;
+            padding: var(--space-16) var(--space-8);
+            background: linear-gradient(135deg, rgba(0, 230, 255, 0.03), rgba(118, 185, 0, 0.03));
+            border: 1px solid var(--white-10);
+            border-radius: var(--radius-xl);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .final-cta::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: var(--radius-xl);
+            padding: 2px;
+            background: linear-gradient(135deg, rgba(0, 230, 255, 0.2), transparent, rgba(118, 185, 0, 0.2));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+        }
+
+        .final-cta h2 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 800;
+            margin-bottom: var(--space-4);
+        }
+
+        .final-cta p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: var(--space-8);
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Organism: Footer */
+        footer {
+            padding: var(--space-16) 0 var(--space-8);
+            border-top: 1px solid var(--white-05);
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: var(--space-8);
+            margin-bottom: var(--space-8);
+        }
+
+        .footer-brand p {
+            color: var(--text-tertiary);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            margin-top: var(--space-2);
+        }
+
+        .footer-col h4 {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: var(--space-3);
+        }
+
+        .footer-col ul {
+            list-style: none;
+        }
+
+        .footer-col li {
+            margin-bottom: var(--space-1);
+        }
+
+        .footer-col a {
+            color: var(--text-tertiary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: color var(--duration-fast);
+        }
+
+        .footer-col a:hover {
+            color: var(--brand-primary);
+        }
+
+        .footer-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: var(--space-8);
+            border-top: 1px solid var(--white-05);
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+        }
+
+        .footer-aether {
+            font-style: italic;
+            opacity: 0.6;
+            font-size: 0.75rem;
+        }
+
+        /* Section heading pattern */
+        .section-heading {
+            margin-bottom: var(--space-12);
+        }
+
+        .section-heading h2 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+        }
+
+        .section-heading p {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            margin-top: var(--space-3);
+            max-width: 600px;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .services-grid,
+            .audience-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .process-grid {
+                flex-direction: column;
+                gap: var(--space-6);
+            }
+
+            .step-connector {
+                display: none;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .trust-bar-inner {
+                gap: var(--space-6);
+            }
+
+            .usp-highlight {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .hero h1 {
+                font-size: 2.25rem;
+            }
+
+            .hero-trust-pills {
+                justify-content: center;
+            }
+
+            .hero-content {
+                text-align: center;
+            }
+
+            .cta-group {
+                justify-content: center;
+            }
+
+            .hero-sub {
+                margin-left: auto;
+                margin-right: auto;
+            }
+        }
+
+        /* ===== SECTION DIVIDER ===== */
+        .section-divider {
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--white-10), transparent);
+        }
+
+        /* show annotations mode */
+        body.show-annotations .annotation {
+            opacity: 1 !important;
+        }
+
+        /* Toggle */
+        .annotation-toggle {
+            position: fixed;
+            bottom: var(--space-4);
+            right: var(--space-4);
+            z-index: 200;
+            padding: var(--space-2) var(--space-4);
+            background: var(--void-700);
+            border: 1px solid var(--white-10);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all var(--duration-fast);
+        }
+
+        .annotation-toggle:hover {
+            background: var(--void-600);
+            color: var(--brand-primary);
+            border-color: var(--brand-primary);
+        }
+
+        .annotation-toggle.active {
+            background: rgba(0, 230, 255, 0.1);
+            color: var(--brand-primary);
+            border-color: var(--brand-primary);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- TOGGLE ANNOTATIONS -->
+    <button class="annotation-toggle"
+        onclick="document.body.classList.toggle('show-annotations'); this.classList.toggle('active');">
+        🏷️ Annotations anzeigen
+    </button>
+
+    <!-- ===== ORGANISM: NAVIGATION ===== -->
+    <nav>
+        <div class="container nav-inner">
+            <div class="nav-logo annotated">
+                <span>MiMi</span> <span style="color: var(--text-secondary)">Tech AI</span>
+                <span class="annotation" style="top:-20px; left:0;">Atom: Logo</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#" class="active">Home</a></li>
+                <li class="annotated">
+                    <a href="#">Leistungen ▾</a>
+                    <span class="annotation" style="top:-20px; left:0;">Mega-Dropdown (3 Säulen)</span>
+                </li>
+                <li><a href="#">MIMI</a></li>
+                <li><a href="#">Über uns</a></li>
+                <li><a href="#" class="btn-primary nav-cta">Kontakt</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- ===== ORGANISM: HERO ===== -->
+    <section class="hero">
+        <div class="hero-bg"></div>
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-trust-pills annotated">
+                    <span class="trust-badge">
+                        <span class="badge-icon">🟢</span> NVIDIA Connect Partner
+                    </span>
+                    <span class="trust-badge">
+                        <span class="badge-icon">🔒</span> DSGVO-konform
+                    </span>
+                    <span class="annotation" style="top:-22px; left:0;">Molecule: TrustPill × 3</span>
+                </div>
+
+                <h1 class="annotated">
+                    Ihr <span class="gradient-text">KI-Partner</span> für<br>
+                    maßgeschneiderte Lösungen.
+                    <span class="annotation" style="top:-24px; left:0;">Atom: GradientText in H1</span>
+                </h1>
+
+                <p class="hero-sub">
+                    Wir entwickeln und trainieren KI-Modelle, die lokal auf Ihren Unternehmensdaten laufen –
+                    DSGVO-konform, ohne Cloud-Abhängigkeit, mit messbaren Ergebnissen.
+                </p>
+
+                <div class="cta-group annotated">
+                    <a href="#" class="btn-primary">Kostenlose Beratung →</a>
+                    <a href="#" class="btn-ghost">Leistungen entdecken</a>
+                    <span class="annotation" style="bottom:-24px; left:0;">Molecule: CTAGroup (Primary + Ghost)</span>
+                </div>
+            </div>
+        </div>
+        <div class="scroll-indicator">
+            <span>Mehr erfahren</span>
+            <span>↓</span>
+        </div>
+    </section>
+
+    <!-- ===== ORGANISM: TRUST BAR ===== -->
+    <section class="trust-bar annotated" style="padding: var(--space-8) 0;">
+        <span class="annotation" style="top:4px; right:16px;">Organism: TrustBar</span>
+        <div class="container">
+            <div class="trust-bar-inner">
+                <div class="trust-item">
+                    <div class="trust-icon nvidia">⚡</div>
+                    <div>
+                        <div style="font-weight:600; color: var(--text-primary); font-size:0.9rem;">NVIDIA Connect</div>
+                        <div style="font-size:0.75rem;">Offizieller Partner</div>
+                    </div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-icon shield">🔒</div>
+                    <div>
+                        <div style="font-weight:600; color: var(--text-primary); font-size:0.9rem;">DSGVO</div>
+                        <div style="font-size:0.75rem;">Vollständig konform</div>
+                    </div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-icon cert">🇩🇪</div>
+                    <div>
+                        <div style="font-weight:600; color: var(--text-primary); font-size:0.9rem;">Deutsche Qualität
+                        </div>
+                        <div style="font-size:0.75rem;">Made in Schwarzwald</div>
+                    </div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-icon region">🌲</div>
+                    <div>
+                        <div style="font-weight:600; color: var(--text-primary); font-size:0.9rem;">Schwarzwald</div>
+                        <div style="font-size:0.75rem;">Regionaler Partner</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== ORGANISM: SERVICES GRID ===== -->
+    <section>
+        <div class="container">
+            <div class="section-heading annotated">
+                <div class="section-label">Unsere Leistungen</div>
+                <h2>Beraten. Trainieren. <span class="gradient-text">Simulieren.</span></h2>
+                <p>Drei Säulen für Ihren KI-Erfolg – von der Strategie bis zum digitalen Abbild.</p>
+                <span class="annotation" style="top:-20px; left:0;">Atom: SectionLabel + H2 + GradientText</span>
+            </div>
+            <div class="services-grid">
+                <div class="spotlight-card annotated">
+                    <span class="annotation" style="top:4px; right:8px;">Molecule: ServiceCard</span>
+                    <div class="card-icon cyan">🧠</div>
+                    <div class="card-title">KI-Beratung & Strategie</div>
+                    <div class="card-desc">NVIDIA-powered KI-Strategie für Ihr Unternehmen. Von der Analyse bis zum
+                        produktiven Einsatz.</div>
+                    <ul class="card-features">
+                        <li>Ist-Analyse & KI-Readiness</li>
+                        <li>Individuelle KI-Roadmap</li>
+                        <li>Lokale Modell-Entwicklung</li>
+                        <li>NVIDIA Enterprise GPU-Stack</li>
+                    </ul>
+                    <a href="#" class="card-link">Mehr erfahren →</a>
+                </div>
+                <div class="spotlight-card">
+                    <div class="card-icon cyan">📚</div>
+                    <div class="card-title">KI-Schulung & Training</div>
+                    <div class="card-desc">Vom KI-Grundlagen-Workshop bis zur Prompt-Engineering Masterclass.</div>
+                    <ul class="card-features">
+                        <li>Workshops für Teams</li>
+                        <li>Live-Coding Sessions</li>
+                        <li>Hands-on mit echten Daten</li>
+                        <li>Zertifikate & Follow-up</li>
+                    </ul>
+                    <a href="#" class="card-link">Mehr erfahren →</a>
+                </div>
+                <div class="spotlight-card">
+                    <div class="card-icon green">🏗️</div>
+                    <div class="card-title">Digitale Zwillinge</div>
+                    <div class="card-desc">Virtuelle Abbilder Ihrer Anlagen, Gebäude und Städte für Simulation &
+                        Optimierung.</div>
+                    <ul class="card-features">
+                        <li>Smart City & Urban</li>
+                        <li>Bau & Sanierung</li>
+                        <li>Enterprise & Industrie</li>
+                        <li>Echtzeit-Datenanbindung</li>
+                    </ul>
+                    <a href="#" class="card-link">Mehr erfahren →</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- ===== ORGANISM: USP SECTION ===== -->
+    <section>
+        <div class="container">
+            <div class="section-heading">
+                <div class="section-label">Warum MiMi Tech AI</div>
+                <h2>Was uns von anderen<br><span class="gradient-text">KI-Beratern unterscheidet.</span></h2>
+            </div>
+
+            <div class="usp-highlight annotated">
+                <span class="annotation" style="top:4px; right:8px;">Organism: NVIDIA Explainer Card</span>
+                <div class="nvidia-badge-large">⚡</div>
+                <div>
+                    <h3
+                        style="font-size:1.3rem; font-weight:700; margin-bottom:var(--space-2); display:flex; align-items:center; gap:var(--space-2);">
+                        NVIDIA Connect Partner <span class="glow-dot"></span>
+                    </h3>
+                    <p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.7;">
+                        Exklusiver Zugang zu Enterprise-GPUs, Neural-Network-Frameworks und technischem Support
+                        direkt von NVIDIA. Das bedeutet für Sie: <strong style="color:var(--text-primary);">schnellere
+                            Modelle,
+                            bessere Ergebnisse, Zukunftssicherheit.</strong>
+                    </p>
+                </div>
+            </div>
+
+            <table class="comparison-table annotated">
+                <span class="annotation" style="top:-20px; right:0;">Molecule: ComparisonTable</span>
+                <thead>
+                    <tr>
+                        <th>Merkmal</th>
+                        <th>MiMi Tech AI</th>
+                        <th>Andere KI-Berater</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>NVIDIA Partnership</td>
+                        <td><span class="check">✓ Connect Partner</span></td>
+                        <td><span class="cross">✗ Kein Zugang</span></td>
+                    </tr>
+                    <tr>
+                        <td>Lokale KI-Modelle</td>
+                        <td><span class="check">✓ On-Premise</span></td>
+                        <td><span class="cross">✗ Nur Cloud-APIs</span></td>
+                    </tr>
+                    <tr>
+                        <td>Team-Schulung inklusive</td>
+                        <td><span class="check">✓ Im Paket</span></td>
+                        <td><span class="cross">✗ Aufpreis</span></td>
+                    </tr>
+                    <tr>
+                        <td>Regionale Präsenz</td>
+                        <td><span class="check">✓ Schwarzwald / BW</span></td>
+                        <td><span class="cross">✗ Remote only</span></td>
+                    </tr>
+                    <tr>
+                        <td>Faire Mittelstandspreise</td>
+                        <td><span class="check">✓ Transparent</span></td>
+                        <td><span class="cross">✗ Enterprise-Pricing</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- ===== ORGANISM: AUDIENCE SECTION ===== -->
+    <section>
+        <div class="container">
+            <div class="section-heading">
+                <div class="section-label">Für wen wir arbeiten</div>
+                <h2>Die richtige <span class="gradient-text">KI-Lösung</span><br>für jeden Bedarf.</h2>
+            </div>
+            <div class="audience-grid">
+                <div class="spotlight-card annotated">
+                    <span class="annotation" style="top:4px; right:8px;">Molecule: AudienceCard</span>
+                    <div class="card-icon cyan">🏢</div>
+                    <div class="card-title">Unternehmen</div>
+                    <div class="card-desc">KI-Strategie, eigene Modelle trainiert auf Ihre Daten, NVIDIA-powered
+                        Infrastruktur.</div>
+                    <a href="#" class="btn-ghost"
+                        style="width:100%; justify-content:center; margin-top:var(--space-4);">Für Unternehmen →</a>
+                </div>
+                <div class="spotlight-card">
+                    <div class="card-icon cyan">👤</div>
+                    <div class="card-title">Solo-Selbständige</div>
+                    <div class="card-desc">KI-Tools und Workshops, die Ihren Arbeitsalltag sofort effizienter machen.
+                    </div>
+                    <a href="#" class="btn-ghost"
+                        style="width:100%; justify-content:center; margin-top:var(--space-4);">Für Selbständige →</a>
+                </div>
+                <div class="spotlight-card">
+                    <div class="card-icon green">🏛️</div>
+                    <div class="card-title">Städte & Kommunen</div>
+                    <div class="card-desc">Smart City Lösungen und Digitale Zwillinge für die Stadtentwicklung der
+                        Zukunft.</div>
+                    <a href="#" class="btn-ghost"
+                        style="width:100%; justify-content:center; margin-top:var(--space-4);">Für Kommunen →</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- ===== ORGANISM: PROCESS SECTION ===== -->
+    <section>
+        <div class="container">
+            <div class="section-heading" style="text-align:center;">
+                <div class="section-label" style="justify-content:center;">So arbeiten wir</div>
+                <h2>Ihr Weg zur <span class="gradient-text">eigenen KI.</span></h2>
+                <p style="margin-left:auto; margin-right:auto;">In vier klaren Schritten von der Analyse zum produktiven
+                    KI-Einsatz.</p>
+            </div>
+            <div class="process-grid annotated">
+                <span class="annotation" style="top:-20px; left:0;">Organism: ProcessSection (4 × Molecule:
+                    ProcessStep)</span>
+                <div class="process-step">
+                    <div class="step-number">01</div>
+                    <div class="step-title">Analyse</div>
+                    <div class="step-desc">Ist-Aufnahme Ihrer Prozesse und KI-Readiness Check</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="process-step">
+                    <div class="step-number">02</div>
+                    <div class="step-title">Strategie</div>
+                    <div class="step-desc">KI-Roadmap, KPIs definieren, Technologie-Auswahl</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="process-step">
+                    <div class="step-number">03</div>
+                    <div class="step-title">Umsetzung</div>
+                    <div class="step-desc">Modell-Training, Integration, Team-Schulung</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="process-step">
+                    <div class="step-number">04</div>
+                    <div class="step-title">Begleitung</div>
+                    <div class="step-desc">Monitoring, Optimierung, langfristiger Support</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- ===== ORGANISM: FINAL CTA ===== -->
+    <section>
+        <div class="container">
+            <div class="final-cta annotated">
+                <span class="annotation" style="top:8px; right:12px;">Organism: FinalCTA</span>
+                <h2>Bereit für KI?<br><span class="gradient-text">Wir sind Ihr Partner.</span></h2>
+                <p>Lassen Sie uns in einem kostenlosen Erstgespräch herausfinden, wie KI Ihr Unternehmen voranbringt.
+                </p>
+                <div class="cta-group" style="justify-content:center;">
+                    <a href="#" class="btn-primary" style="padding: var(--space-4) var(--space-12); font-size:1.1rem;">
+                        Kostenloses Erstgespräch buchen →
+                    </a>
+                </div>
+                <p style="margin-top: var(--space-4); font-size: 0.85rem; color: var(--text-tertiary);">
+                    Oder rufen Sie direkt an: +49 7052 ...
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== ORGANISM: FOOTER ===== -->
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="nav-logo">
+                        <span style="color: var(--brand-primary)">MiMi</span>
+                        <span style="color: var(--text-secondary)">Tech AI</span>
+                    </div>
+                    <p>Ihr KI-Partner aus dem Schwarzwald. NVIDIA Connect Partner. Lokale KI-Lösungen für den
+                        Mittelstand.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Leistungen</h4>
+                    <ul>
+                        <li><a href="#">KI-Beratung</a></li>
+                        <li><a href="#">KI-Schulung</a></li>
+                        <li><a href="#">Digitale Zwillinge</a></li>
+                        <li><a href="#">KI Erklärt</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Unternehmen</h4>
+                    <ul>
+                        <li><a href="#">Über uns</a></li>
+                        <li><a href="#">NVIDIA Partnership</a></li>
+                        <li><a href="#">MIMI Agent</a></li>
+                        <li><a href="#">Kontakt</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Rechtliches</h4>
+                    <ul>
+                        <li><a href="#">Impressum</a></li>
+                        <li><a href="#">Datenschutz</a></li>
+                        <li><a href="#">AGB</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <span>© 2026 MiMi Tech AI. Alle Rechte vorbehalten.</span>
+                <span class="footer-aether annotated">
+                    Auch aktiv in KI-Sicherheitsforschung · Projekt Aether
+                    <span class="annotation" style="top:-22px; right:0;">Beiläufig: IT-Sicherheitspreis</span>
+                </span>
+            </div>
+        </div>
+    </footer>
+</body>
+
+</html>

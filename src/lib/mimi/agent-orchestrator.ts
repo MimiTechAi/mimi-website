@@ -279,11 +279,17 @@ Liefere immer implementierungsfertigen Code.`
 
 /**
  * Agent Orchestrator - Routes tasks to specialist agents
+ * 
+ * V2.1: Dynamic Priority Scoring (P3 Audit Fix)
+ * Agents earn/lose priority based on actual success rates.
  */
 export class AgentOrchestrator {
     private agents: Map<string, SpecialistAgent>;
     private context: AgentContext;
     private skillRegistry = getSkillRegistry(); // NEW: Skill registry
+
+    // P3: Dynamic priority scoring - tracks per-agent success rates
+    private agentScores: Map<string, { successes: number; total: number; dynamicBoost: number }> = new Map();
 
     constructor() {
         this.agents = new Map(SPECIALIST_AGENTS.map(a => [a.id, a]));
@@ -294,10 +300,48 @@ export class AgentOrchestrator {
             previousAgentOutputs: new Map()
         };
 
+        // Initialize agent scores
+        for (const agent of SPECIALIST_AGENTS) {
+            this.agentScores.set(agent.id, { successes: 0, total: 0, dynamicBoost: 0 });
+        }
+
         // Initialize skill registry
         this.skillRegistry.initialize().catch(error => {
             console.warn('[AgentOrchestrator] Failed to initialize skill registry:', error);
         });
+    }
+
+    /**
+     * P3: Records task outcome for dynamic priority learning
+     * Call this after each agent interaction to improve routing over time.
+     */
+    recordAgentOutcome(agentId: string, success: boolean): void {
+        const score = this.agentScores.get(agentId);
+        if (!score) return;
+
+        score.total += 1;
+        if (success) score.successes += 1;
+
+        // Exponential moving average for dynamic boost
+        // Successful agents get up to +2 boost, failing agents get up to -1
+        const successRate = score.total > 0 ? score.successes / score.total : 0.5;
+        score.dynamicBoost = (successRate - 0.5) * 4; // Range: -2 to +2
+
+        console.log(`[AgentOrchestrator] Agent "${agentId}" score updated: ${score.successes}/${score.total} (boost: ${score.dynamicBoost.toFixed(2)})`);
+    }
+
+    /**
+     * Get success stats for all agents
+     */
+    getAgentStats(): Map<string, { successes: number; total: number; successRate: number; dynamicBoost: number }> {
+        const stats = new Map();
+        for (const [id, score] of this.agentScores) {
+            stats.set(id, {
+                ...score,
+                successRate: score.total > 0 ? score.successes / score.total : 0
+            });
+        }
+        return stats;
     }
 
     /**
@@ -361,8 +405,16 @@ export class AgentOrchestrator {
                 }
             }
 
-            // Priority Bonus
-            score += agent.priority * 0.5;
+            // Vision-related queries boost general agent (which has tool access)
+            if (/bild|foto|photo|image|screenshot|bildanalyse|image.?analy|ocr|text.?im.?bild|was.?siehst|was.?ist.?auf|was.?ist.?im|zeig|erkenn|schau.?dir.?an|look.?at/i.test(lowerMessage)) {
+                if (agent.id === 'general') {
+                    score += 4; // Boost general agent for vision queries (has analyze_image tool)
+                }
+            }
+
+            // Priority Bonus + P3: Dynamic learning boost
+            const dynamicBoost = this.agentScores.get(agent.id)?.dynamicBoost || 0;
+            score += agent.priority * 0.5 + dynamicBoost;
 
             classifications.push({ agent: agent.id, score, caps: matchedCaps });
         }
@@ -407,6 +459,13 @@ export class AgentOrchestrator {
     getAgentPrompt(agentId: string): string {
         const agent = this.agents.get(agentId);
         return agent?.systemPrompt || SPECIALIST_AGENTS.find(a => a.id === 'general')!.systemPrompt;
+    }
+
+    /**
+     * Gibt den aktuellen Kontext zurück (für imageContext etc.)
+     */
+    getContext(): AgentContext {
+        return this.context;
     }
 
     /**
