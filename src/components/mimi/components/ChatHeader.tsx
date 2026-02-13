@@ -12,7 +12,7 @@
 'use client';
 
 import { useState, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
     Bot,
     Sparkles,
@@ -28,12 +28,16 @@ import {
     FileDown,
     FileText,
     Check,
-    Copy
+    Copy,
+    History,
+    Plus,
+    MessageSquare
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AgentStatus } from "@/lib/mimi/inference-engine";
 import type { PDFDocument } from "@/lib/mimi/pdf-processor";
+import type { ConversationSummary } from "@/lib/mimi/chat-history";
 
 export interface ChatHeaderProps {
     isReady: boolean;
@@ -55,6 +59,13 @@ export interface ChatHeaderProps {
     onExport?: (format: 'json' | 'markdown' | 'clipboard') => void;
     copiedId?: string | null;
     className?: string;
+    // Chat History
+    conversations?: ConversationSummary[];
+    activeConversationId?: string | null;
+    onLoadConversation?: (id: string) => void;
+    onNewConversation?: () => void;
+    onDeleteConversation?: (id: string) => void;
+    onRefreshConversations?: () => void;
 }
 
 const STATUS_LABELS: Record<AgentStatus, string> = {
@@ -103,12 +114,20 @@ export function ChatHeader({
     messagesCount = 0,
     onExport,
     copiedId,
-    className
+    className,
+    // Chat History
+    conversations = [],
+    activeConversationId,
+    onLoadConversation,
+    onNewConversation,
+    onDeleteConversation,
+    onRefreshConversations,
 }: ChatHeaderProps) {
     // Self-contained toggle states
     const [showLanguages, setShowLanguages] = useState(false);
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [showDocuments, setShowDocuments] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
 
     // Refs for file inputs
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -300,6 +319,110 @@ export function ChatHeader({
                     </div>
                 )}
 
+                {/* Chat History */}
+                {onLoadConversation && (
+                    <div className="relative">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                setShowHistory(!showHistory);
+                                if (!showHistory) onRefreshConversations?.();
+                            }}
+                            className={cn(
+                                "text-white/50 hover:text-white hover:bg-white/10",
+                                showHistory && "bg-white/10 text-white"
+                            )}
+                            title="Chat-Verlauf"
+                        >
+                            <History className="w-4 h-4 mr-2" />
+                            Verlauf
+                            {conversations.length > 0 && (
+                                <span className="ml-1 px-1.5 py-0.5 bg-brand-cyan/20 text-brand-cyan text-[10px] rounded-full">
+                                    {conversations.length}
+                                </span>
+                            )}
+                        </Button>
+
+                        <AnimatePresence>
+                            {showHistory && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="absolute right-0 top-full mt-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden z-50 min-w-[300px] max-h-[400px] shadow-2xl shadow-black/50"
+                                >
+                                    {/* Header */}
+                                    <div className="px-3 py-2.5 border-b border-white/10 flex items-center justify-between">
+                                        <span className="text-xs font-medium text-white/60">Chat-Verlauf</span>
+                                        <button
+                                            onClick={() => {
+                                                onNewConversation?.();
+                                                setShowHistory(false);
+                                            }}
+                                            className="flex items-center gap-1 text-xs text-brand-cyan hover:text-brand-cyan/80 transition-colors"
+                                        >
+                                            <Plus className="w-3 h-3" />
+                                            Neuer Chat
+                                        </button>
+                                    </div>
+
+                                    {/* Conversation List */}
+                                    <div className="overflow-y-auto max-h-[340px]">
+                                        {conversations.length === 0 ? (
+                                            <div className="px-4 py-8 text-center text-white/30 text-sm">
+                                                <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                                Noch keine Chats gespeichert
+                                            </div>
+                                        ) : (
+                                            conversations.map((conv) => (
+                                                <div
+                                                    key={conv.id}
+                                                    onClick={() => {
+                                                        onLoadConversation(conv.id);
+                                                        setShowHistory(false);
+                                                    }}
+                                                    className={cn(
+                                                        "px-3 py-2.5 hover:bg-white/5 cursor-pointer flex items-start justify-between gap-2 border-b border-white/5 transition-colors",
+                                                        conv.id === activeConversationId && "bg-brand-cyan/5 border-l-2 border-l-brand-cyan"
+                                                    )}
+                                                >
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className={cn(
+                                                            "text-sm truncate",
+                                                            conv.id === activeConversationId ? "text-white font-medium" : "text-white/70"
+                                                        )}>
+                                                            {conv.title}
+                                                        </div>
+                                                        <div className="text-[10px] text-white/30 mt-0.5 flex items-center gap-2">
+                                                            <span>{conv.messageCount} Nachrichten</span>
+                                                            <span>•</span>
+                                                            <span>{formatRelativeDate(conv.updatedAt)}</span>
+                                                        </div>
+                                                    </div>
+                                                    {onDeleteConversation && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onDeleteConversation(conv.id);
+                                                            }}
+                                                            className="p-1 hover:bg-red-500/20 rounded text-white/30 hover:text-red-400 transition-colors shrink-0 mt-0.5"
+                                                            title="Löschen"
+                                                        >
+                                                            <Trash2 className="w-3 h-3" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                )}
+
                 {/* Export & Clear */}
                 {messagesCount > 0 && (
                     <>
@@ -371,4 +494,21 @@ export function ChatHeader({
             </div>
         </div>
     );
+}
+
+// ─── Helper ──────────────────────────────────────────────────────
+
+function formatRelativeDate(isoString: string): string {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffH = Math.floor(diffMs / 3600000);
+    const diffD = Math.floor(diffMs / 86400000);
+
+    if (diffMin < 1) return 'Gerade eben';
+    if (diffMin < 60) return `vor ${diffMin}m`;
+    if (diffH < 24) return `vor ${diffH}h`;
+    if (diffD < 7) return `vor ${diffD}d`;
+    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
 }

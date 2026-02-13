@@ -14,6 +14,9 @@ import { getVectorStore, type SearchResult as VectorSearchResult } from './vecto
 import { getOrchestrator, type AgentOrchestrator } from './agent-orchestrator';
 import { getMemoryManager, type MemoryManager } from './memory-manager';
 import { getToolDescriptionsForPrompt, parseToolCalls, executeToolCall } from './tool-definitions';
+import { getTaskPlanner, type TaskPlanner, type TaskPlan } from './task-planner';
+import { AgentEvents } from './agent-events';
+import { getAgentMemory, getContextWindowManager, ResultPipeline, type AgentMemoryService, type ContextWindowManager } from './agent-memory';
 
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
@@ -144,16 +147,28 @@ export class MimiEngine {
     private agentOrchestrator: AgentOrchestrator;
     private memoryManager: MemoryManager;
     private isGenerating = false;
-    private toolContext: ToolContext = {}; // Tool handlers from UI layer
-    private static MAX_TOOL_ITERATIONS = 3; // Prevent infinite tool loops
+    private toolContext: ToolContext = {};
+    private static MAX_TOOL_ITERATIONS = 10;
+    private taskPlanner: TaskPlanner;
+    // Phase 4: Intelligence improvements
+    private agentMemory: AgentMemoryService;
+    private contextWindowManager: ContextWindowManager;
 
     constructor() {
         if (typeof window !== 'undefined') {
             this.agentOrchestrator = getOrchestrator();
             this.memoryManager = getMemoryManager();
+            this.taskPlanner = getTaskPlanner();
+            this.agentMemory = getAgentMemory();
+            this.contextWindowManager = getContextWindowManager(4096);
+            // Initialize memory (async, non-blocking)
+            this.agentMemory.initialize().catch(() => { });
         } else {
             this.agentOrchestrator = null as any;
             this.memoryManager = null as any;
+            this.taskPlanner = null as any;
+            this.agentMemory = null as any;
+            this.contextWindowManager = null as any;
         }
     }
 
@@ -555,6 +570,10 @@ export class MimiEngine {
                             this.updateStatus('generating');
                             outputBuffer = outputBuffer.replace(/^\s*\n?/, '');
                         } else if (isInThinking) {
+                            // Emit thinking content for live CoT display
+                            if (outputBuffer.length > 0) {
+                                AgentEvents.thinkingContent(outputBuffer);
+                            }
                             thinkingBuffer += outputBuffer;
                             outputBuffer = '';
                             break;
@@ -692,6 +711,18 @@ export class MimiEngine {
 
         // Action trigger (regex-based intent detection)
         const userMsg = messages[messages.length - 1]?.content || '';
+
+        // Phase 4: Memory context injection (after userMsg is declared)
+        try {
+            const memoryContext = await this.agentMemory?.buildMemoryContext(userMsg);
+            if (memoryContext) {
+                systemPrompt += '\n\n' + memoryContext;
+                console.log('[MIMI] 🧠 Memory context injected');
+            }
+        } catch (e) {
+            // Memory is non-critical, don't block
+        }
+
         const actionTrigger = this.detectActionIntent(userMsg);
         if (actionTrigger) {
             systemPrompt += actionTrigger;
@@ -704,71 +735,226 @@ export class MimiEngine {
         ];
 
         this.updateStatus('thinking');
+        AgentEvents.statusChange('thinking', primaryAgent);
 
         // ═══════════════════════════════════════════════════════════
-        // AGENTIC TOOL LOOP
-        // LLM generates → parse tool calls → execute → feed back → repeat
+        // TASK PLANNING — Manus-style autonomous decomposition
+        // ═══════════════════════════════════════════════════════════
+        let activePlan: TaskPlan | null = null;
+        const userMsg2 = messages[messages.length - 1]?.content || '';
+
+        if (this.taskPlanner?.shouldPlan(userMsg2)) {
+            activePlan = this.taskPlanner.createPlan(userMsg2);
+            activePlan.status = 'executing';
+            console.log(`[MIMI] 📋 Plan created: ${activePlan.title} (${activePlan.steps.length} steps)`);
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // AGENTIC TOOL LOOP (V3) + Result Pipeline + Self-Loop Guard
+        // LLM generates → parse tools → execute with events → pipe results → repeat
+        // Extended from 3→10 iterations for complex multi-step tasks
+        // Self-loop guard: aborts if identical tool calls repeat
         // ═══════════════════════════════════════════════════════════
         let iteration = 0;
+        let currentStepIndex = 0;
+        const resultPipeline = new ResultPipeline();
+        let lastToolHash = ''; // Self-loop guard
 
         while (iteration < MimiEngine.MAX_TOOL_ITERATIONS) {
             iteration++;
             console.log(`[MIMI] 🔄 Generation iteration ${iteration}/${MimiEngine.MAX_TOOL_ITERATIONS}`);
 
+            // Update plan step status if we have an active plan
+            if (activePlan) {
+                const nextStep = this.taskPlanner.getNextStep(activePlan);
+                if (nextStep) {
+                    activePlan = this.taskPlanner.updateStepStatus(activePlan, nextStep.id, 'running');
+                    currentStepIndex = activePlan.steps.findIndex(s => s.id === nextStep.id);
+                }
+            }
+
             // Run single LLM generation — collect full response for tool parsing
             let fullResponse = '';
+            AgentEvents.thinkingStart();
             for await (const token of this.singleGeneration(fullMessages, options)) {
                 fullResponse += token;
+                AgentEvents.textDelta(token);
                 yield token; // Stream to UI
             }
+            AgentEvents.thinkingEnd();
 
             // Parse for tool calls
             const toolCalls = parseToolCalls(fullResponse);
 
             if (toolCalls.length === 0) {
-                // No tool calls — we're done
+                // No tool calls — mark current step done and we're done
+                if (activePlan) {
+                    const runningStep = activePlan.steps.find(s => s.status === 'running');
+                    if (runningStep) {
+                        activePlan = this.taskPlanner.updateStepStatus(
+                            activePlan, runningStep.id, 'done', 'Completed'
+                        );
+                    }
+                    // Mark remaining pending steps as done (summary step)
+                    for (const step of activePlan.steps) {
+                        if (step.status === 'pending') {
+                            activePlan = this.taskPlanner.updateStepStatus(
+                                activePlan, step.id, 'done', 'Completed'
+                            );
+                        }
+                    }
+                }
                 console.log('[MIMI] ✅ No tool calls, generation complete');
                 break;
             }
 
-            // Execute tool calls
+            // Self-loop guard: detect repeated identical tool calls
+            const currentToolHash = JSON.stringify(toolCalls.map(t => ({ tool: t.tool, params: t.parameters })));
+            if (currentToolHash === lastToolHash) {
+                console.warn('[MIMI] ⚠️ Self-loop detected: identical tool calls repeated. Aborting loop.');
+                yield '\n\n⚠️ *Wiederholte Tool-Aufrufe erkannt. Abbruch der Schleife.*\n';
+                break;
+            }
+            lastToolHash = currentToolHash;
+
+            // Execute tool calls with event emission
             console.log(`[MIMI] 🔧 Found ${toolCalls.length} tool call(s):`, toolCalls.map(t => t.tool));
             this.updateStatus('calculating');
+            AgentEvents.statusChange('executing', primaryAgent);
 
             let toolResultsText = '';
             for (const call of toolCalls) {
+                const toolStartTime = Date.now();
                 console.log(`[MIMI] ⚡ Executing: ${call.tool}(${JSON.stringify(call.parameters).slice(0, 100)})`);
+                AgentEvents.toolCallStart(call.tool, call.parameters, activePlan?.steps[currentStepIndex]?.id);
                 yield `\n\n🔧 *Tool: ${call.tool}...*\n`;
 
                 try {
                     const result = await executeToolCall(call, this.toolContext);
+                    const duration = Date.now() - toolStartTime;
                     toolResultsText += `\n\n**Tool-Ergebnis (${call.tool}):**\n${result.output}\n`;
-                    console.log(`[MIMI] ✅ ${call.tool}: ${result.success ? 'OK' : 'FAIL'}`);
+                    AgentEvents.toolCallEnd(call.tool, result.success, result.output, duration, activePlan?.steps[currentStepIndex]?.id);
+
+                    // Track file writes
+                    if (call.tool === 'write_file' && call.parameters?.path) {
+                        AgentEvents.fileWrite(call.parameters.path as string, 'create');
+                    } else if (call.tool === 'create_file' && result.success) {
+                        AgentEvents.artifactCreate(
+                            call.parameters?.filename as string || 'output',
+                            call.parameters?.type as string || 'txt',
+                            (call.parameters?.content as string || '').slice(0, 500),
+                            'file'
+                        );
+                    }
+
+                    console.log(`[MIMI] ✅ ${call.tool}: ${result.success ? 'OK' : 'FAIL'} (${duration}ms)`);
+
+                    // Stream tool result to chat UI
+                    const truncatedOutput = result.output.length > 300
+                        ? result.output.slice(0, 300) + '...'
+                        : result.output;
+                    yield `\n✅ **${call.tool}** (${(duration / 1000).toFixed(1)}s): ${truncatedOutput}\n`;
+
+                    // Phase 4: Add to result pipeline for chaining
+                    const stepId = activePlan?.steps[currentStepIndex]?.id || `iter_${iteration}`;
+                    resultPipeline.addResult(stepId, call.tool, result.output);
+
+                    // Cache tool result for deduplication
+                    try {
+                        await this.agentMemory?.cacheToolResult(
+                            call.tool,
+                            JSON.stringify(call.parameters).slice(0, 200),
+                            result.output.slice(0, 500)
+                        );
+                    } catch { /* non-critical */ }
+
+                    // Mark step done on success
+                    if (activePlan) {
+                        const runningStep = activePlan.steps.find(s => s.status === 'running');
+                        if (runningStep) {
+                            activePlan = this.taskPlanner.updateStepStatus(
+                                activePlan, runningStep.id, 'done', result.output.slice(0, 200), undefined
+                            );
+                        }
+                    }
                 } catch (e) {
                     const errMsg = e instanceof Error ? e.message : String(e);
+                    const duration = Date.now() - toolStartTime;
                     toolResultsText += `\n\n**Tool-Fehler (${call.tool}):** ${errMsg}\n`;
-                    console.error(`[MIMI] ❌ ${call.tool} failed:`, e);
+                    AgentEvents.toolCallEnd(call.tool, false, errMsg, duration, activePlan?.steps[currentStepIndex]?.id);
+                    console.error(`[MIMI] ❌ ${call.tool} failed (${duration}ms):`, e);
+
+                    // Stream error to chat UI
+                    yield `\n❌ **${call.tool}** fehlgeschlagen: ${errMsg}\n`;
+
+                    // Self-correction: mark step failed, retry if possible
+                    if (activePlan) {
+                        const runningStep = activePlan.steps.find(s => s.status === 'running');
+                        if (runningStep) {
+                            activePlan = this.taskPlanner.updateStepStatus(
+                                activePlan, runningStep.id, 'failed', undefined, errMsg
+                            );
+                            // If retryable, add correction hint to prompt
+                            if (this.taskPlanner.canRetry(runningStep)) {
+                                toolResultsText += `\n⚠️ Bitte versuche es erneut mit korrigiertem Code/Query.\n`;
+                                // Reset step to pending for retry
+                                activePlan = this.taskPlanner.updateStepStatus(
+                                    activePlan, runningStep.id, 'pending' as any
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
-            // Feed tool results back — append as user message with tool context
+            // Feed tool results back — append as user message with tool context + piped results
+            const chainingContext = resultPipeline.buildChainingContext(3);
             fullMessages = [
                 ...fullMessages,
                 { role: 'assistant', content: fullResponse },
-                { role: 'user', content: `[TOOL_RESULTS]\n${toolResultsText}\n\nNutze diese Ergebnisse um die ursprüngliche Frage zu beantworten. Antworte DIREKT basierend auf den Ergebnissen.` }
+                { role: 'user', content: `[TOOL_RESULTS]\n${toolResultsText}\n${chainingContext ? '\n' + chainingContext + '\n' : ''}\nNutze diese Ergebnisse um die ursprüngliche Frage zu beantworten. Antworte DIREKT basierend auf den Ergebnissen.` }
             ];
 
             // Yield separator before next iteration
             yield '\n\n---\n\n';
             this.updateStatus('thinking');
+            AgentEvents.statusChange('thinking', primaryAgent);
         }
 
         if (iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
             console.warn('[MIMI] ⚠️ Max tool iterations reached');
         }
 
+        // Mark plan as complete if all steps are done/failed
+        if (activePlan) {
+            const allDone = activePlan.steps.every(s => s.status === 'done' || s.status === 'failed');
+            if (allDone || iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
+                activePlan.status = 'complete';
+                const completedSteps = activePlan.steps.filter(s => s.status === 'done').length;
+                const failedSteps = activePlan.steps.filter(s => s.status === 'failed').length;
+                const totalDuration = Date.now() - activePlan.createdAt;
+                AgentEvents.planComplete(activePlan.id, totalDuration, completedSteps, failedSteps);
+                console.log(`[MIMI] 📋 Plan complete: ${completedSteps}/${activePlan.steps.length} steps done`);
+            }
+        }
+
         this.isGenerating = false;
         this.updateStatus('idle');
+        AgentEvents.statusChange('idle');
+
+        // Phase 4: Persist task summary if plan completed
+        if (activePlan && activePlan.status === 'complete') {
+            try {
+                const stepTitles = activePlan.steps.map(s => s.title);
+                const completedSteps = activePlan.steps.filter(s => s.status === 'done').length;
+                await this.agentMemory?.storeTaskSummary(
+                    activePlan.title,
+                    stepTitles,
+                    `${completedSteps}/${activePlan.steps.length} steps completed`,
+                    Date.now() - activePlan.createdAt
+                );
+            } catch { /* non-critical */ }
+        }
     }
 
     // [REMOVED] streamGeneration — was trivial delegate to generate()

@@ -4,10 +4,8 @@ import "../styles/caching.css";
 import "../styles/core-web-vitals.css";
 import "../styles/accessibility.css";
 import "./globals.css";
-import CookieConsent from "@/components/CookieConsent";
-import ScrollToTop from "@/components/ScrollToTop";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
-import FloatingCTA from "@/components/FloatingCTA";
+import LayoutOverlays from "@/components/LayoutOverlays";
 import { Analytics } from "@vercel/analytics/react";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
@@ -105,9 +103,7 @@ export default function RootLayout({
         <main id="main-content" role="main" className="relative">
           {children}
         </main>
-        <CookieConsent />
-        <ScrollToTop />
-        <FloatingCTA />
+        <LayoutOverlays />
       </body>
     </html>
   );

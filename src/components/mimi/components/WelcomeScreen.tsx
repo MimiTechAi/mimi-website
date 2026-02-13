@@ -41,9 +41,9 @@ export function WelcomeScreen({ onPromptSelect }: WelcomeScreenProps) {
                 <motion.div
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-6"
+                    className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center mb-6"
                 >
-                    <Brain className="w-12 h-12 text-cyan-400" />
+                    <Brain className="w-12 h-12 text-purple-400" />
                 </motion.div>
 
                 <motion.h3
@@ -77,7 +77,7 @@ export function WelcomeScreen({ onPromptSelect }: WelcomeScreenProps) {
                             key={i}
                             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white/70"
                         >
-                            <cap.icon className="w-4 h-4 text-cyan-400" />
+                            <cap.icon className="w-4 h-4 text-purple-400" />
                             <span>{cap.text}</span>
                         </div>
                     ))}

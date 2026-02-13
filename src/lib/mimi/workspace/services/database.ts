@@ -104,24 +104,24 @@ export class MimiSQLite {
 
         const fs = getMimiFilesystem();
         try {
-            // Read file as binary
-            // Currently OPFS wrapper reads as text, we might need simple readAsArrayBuffer
-            // For now assuming we can get Uint8Array content.
-            // If readFile returns string, we need to handle that or extend FS.
+            // Read binary database file via OPFS readFileBuffer
+            const buffer = await fs.readFileBuffer(path);
+            const data = new Uint8Array(buffer);
 
-            // NOTE: MimiFilesystem.readFile returns string (text).
-            // We need a binary read method. For now, assuming standard text read isn't enough.
-            // Let's implement a workaround or extend FS later.
-            // For this version, let's assume we create new DBs or handle text-encoded DBs (base64).
+            if (this.db) {
+                this.db.close();
+            }
 
-            // TODO: Add binary read/write to MimiFilesystem
-            console.warn('[MIMI SQLite] Opening existing DB files requires binary FS support. Creating new DB for now.');
-            await this.createDatabase();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            this.db = new (this.SQL as any).Database(data);
             this.currentDbPath = path;
+            console.log(`[MIMI SQLite] ✅ Opened database from ${path} (${data.length} bytes)`);
 
         } catch (error) {
-            console.error('[MIMI SQLite] Failed to open database:', error);
-            throw error;
+            // If file doesn't exist, create a new empty database
+            console.warn(`[MIMI SQLite] Could not open ${path}, creating new DB:`, error);
+            await this.createDatabase();
+            this.currentDbPath = path;
         }
     }
 
@@ -168,20 +168,18 @@ export class MimiSQLite {
     }
 
     /**
-     * Save database to workspace
+     * Save database to workspace (binary persistence via OPFS)
      */
     async saveDatabase(path: string = 'database.sqlite'): Promise<void> {
         if (!this.db) return;
 
-        const data = this.db.export();
-        // const fs = getMimiFilesystem();
+        const fs = getMimiFilesystem();
+        const data = this.db.export(); // Returns Uint8Array
 
-        // Convert Uint8Array to string (inefficient but compatible with current FS)
-        // ideally we upload binary. For now, let's use a "binary string" workaround or base64 
-        // if we updated FS. Since we didn't, let's skip actual persistence for this MVP step
-        // or check if we can add binary support.
-
-        console.log(`[MIMI SQLite] Saving ${data.length} bytes (persistence pending binary FS support)`);
+        // Write binary ArrayBuffer directly — MimiFilesystem.writeFile supports ArrayBuffer
+        await fs.writeFile(path, data.buffer as ArrayBuffer);
+        this.currentDbPath = path;
+        console.log(`[MIMI SQLite] ✅ Saved database to ${path} (${data.length} bytes)`);
     }
 
     /**

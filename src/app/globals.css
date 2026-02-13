@@ -162,18 +162,30 @@ nav :where(a, button, [role="link"]):focus-visible {
   /* ==========================================
      Spacing Scale (8px-based) — Design System v2
      ========================================== */
-  --space-1: 0.25rem;   /* 4px */
-  --space-2: 0.5rem;    /* 8px */
-  --space-3: 0.75rem;   /* 12px */
-  --space-4: 1rem;      /* 16px */
-  --space-5: 1.25rem;   /* 20px */
-  --space-6: 1.5rem;    /* 24px */
-  --space-8: 2rem;      /* 32px */
-  --space-10: 2.5rem;   /* 40px */
-  --space-12: 3rem;     /* 48px */
-  --space-16: 4rem;     /* 64px */
-  --space-20: 5rem;     /* 80px */
-  --space-24: 6rem;     /* 96px */
+  --space-1: 0.25rem;
+  /* 4px */
+  --space-2: 0.5rem;
+  /* 8px */
+  --space-3: 0.75rem;
+  /* 12px */
+  --space-4: 1rem;
+  /* 16px */
+  --space-5: 1.25rem;
+  /* 20px */
+  --space-6: 1.5rem;
+  /* 24px */
+  --space-8: 2rem;
+  /* 32px */
+  --space-10: 2.5rem;
+  /* 40px */
+  --space-12: 3rem;
+  /* 48px */
+  --space-16: 4rem;
+  /* 64px */
+  --space-20: 5rem;
+  /* 80px */
+  --space-24: 6rem;
+  /* 96px */
 
   /* ==========================================
      MiMi Brand Colors - From Logo (Design System v2)
@@ -619,10 +631,8 @@ body {
   box-shadow: 0 8px 32px rgba(0, 240, 255, 0.1);
 }
 
-/* Contact Form Styling */
-input,
-textarea,
-select {
+/* Contact Form Styling — scoped to exclude MIMI Agent workspace */
+:where(input, textarea, select):not(.mimi-outer-wrap *) {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #fff;
@@ -631,9 +641,7 @@ select {
   transition: all 0.3s ease;
 }
 
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
+:where(input, textarea, select):not(.mimi-outer-wrap *):focus-visible {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--brand-cyan);
 }

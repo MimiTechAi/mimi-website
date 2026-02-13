@@ -127,6 +127,78 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         ],
         handler: 'calculate'
     },
+    // ─── NEW V3 TOOLS — Full Workspace Autonomy ──────────────
+    {
+        name: 'execute_javascript',
+        description: 'Führt JavaScript-Code sicher im QuickJS-Sandbox aus. Unterstützt ES2020+ Syntax, Module, und console.log Output.',
+        parameters: [
+            {
+                name: 'code',
+                type: 'string',
+                description: 'Der auszuführende JavaScript-Code',
+                required: true
+            }
+        ],
+        handler: 'executeJavaScript'
+    },
+    {
+        name: 'execute_sql',
+        description: 'Führt SQL-Queries gegen die lokale SQLite-Datenbank aus. Unterstützt CREATE, INSERT, SELECT, UPDATE, DELETE.',
+        parameters: [
+            {
+                name: 'query',
+                type: 'string',
+                description: 'Die SQL-Query',
+                required: true
+            }
+        ],
+        handler: 'executeSql'
+    },
+    {
+        name: 'read_file',
+        description: 'Liest den Inhalt einer Datei aus dem Workspace-Dateisystem.',
+        parameters: [
+            {
+                name: 'path',
+                type: 'string',
+                description: 'Pfad zur Datei im Workspace, z.B. "src/main.py" oder "data/output.csv"',
+                required: true
+            }
+        ],
+        handler: 'readFile'
+    },
+    {
+        name: 'write_file',
+        description: 'Erstellt oder überschreibt eine Datei im Workspace-Dateisystem.',
+        parameters: [
+            {
+                name: 'path',
+                type: 'string',
+                description: 'Pfad der Datei, z.B. "src/analysis.py" oder "output/result.json"',
+                required: true
+            },
+            {
+                name: 'content',
+                type: 'string',
+                description: 'Inhalt der Datei',
+                required: true
+            }
+        ],
+        handler: 'writeFile'
+    },
+    {
+        name: 'list_files',
+        description: 'Listet alle Dateien und Ordner im Workspace auf.',
+        parameters: [
+            {
+                name: 'path',
+                type: 'string',
+                description: 'Pfad des Verzeichnisses (default: "/" für Root)',
+                required: false
+            }
+        ],
+        handler: 'listFiles'
+    },
 ];
 
 /**

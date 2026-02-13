@@ -47,51 +47,86 @@ self.onmessage = async (e: MessageEvent) => {
 };
 
 /**
+ * Monkey-patches GPUAdapter.prototype.requestDevice to inject maximum
+ * compute limits. WebLLM v0.2.80 internally calls detectGPUDevice() which
+ * does NOT request maxComputeInvocationsPerWorkgroup — it defaults to 256,
+ * but Phi-3.5-vision needs 1024. This patch intercepts all requestDevice
+ * calls and merges in the adapter's maximum supported compute limits.
+ *
+ * Returns a cleanup function to restore the original method.
+ */
+function patchWebGPULimits(): () => void {
+    if (typeof GPUAdapter === 'undefined') {
+        console.warn('[Worker] GPUAdapter not available, skipping patch');
+        return () => { };
+    }
+
+    const originalRequestDevice = GPUAdapter.prototype.requestDevice;
+
+    GPUAdapter.prototype.requestDevice = function (
+        this: GPUAdapter,
+        descriptor?: GPUDeviceDescriptor
+    ): Promise<GPUDevice> {
+        const patchedDescriptor: GPUDeviceDescriptor = {
+            ...descriptor,
+            requiredLimits: {
+                ...descriptor?.requiredLimits,
+                // Inject max compute limits from this adapter's capabilities
+                maxComputeInvocationsPerWorkgroup:
+                    this.limits.maxComputeInvocationsPerWorkgroup,
+                maxComputeWorkgroupSizeX:
+                    this.limits.maxComputeWorkgroupSizeX,
+                maxComputeWorkgroupSizeY:
+                    this.limits.maxComputeWorkgroupSizeY,
+                maxComputeWorkgroupSizeZ:
+                    this.limits.maxComputeWorkgroupSizeZ,
+            },
+        };
+
+        console.log(
+            `[Worker] Patched requestDevice — maxComputeInvocationsPerWorkgroup=${this.limits.maxComputeInvocationsPerWorkgroup}`
+        );
+
+        return originalRequestDevice.call(this, patchedDescriptor);
+    };
+
+    return () => {
+        GPUAdapter.prototype.requestDevice = originalRequestDevice;
+    };
+}
+
+/**
  * Initialisiert die WebLLM Engine
- * 
- * WICHTIG: Wir erstellen das GPU-Device SELBST mit maximalen Compute-Limits,
- * da der Default (256 workgroup invocations) für größere Modelle nicht reicht.
- * Phi-3.5-vision braucht z.B. 1024 invocations pro Workgroup.
+ *
+ * Wir patchen GPUAdapter.requestDevice BEVOR WebLLM seine eigene Engine
+ * erstellt, damit das intern erstellte GPU-Device die maximalen Compute-Limits
+ * bekommt (z.B. 1024 invocations statt dem Default 256).
  */
 async function initializeEngine(modelId: string): Promise<void> {
     const startTime = Date.now();
 
-    // Request GPU device with maximum compute limits
-    let gpuDevice: GPUDevice | undefined;
-    try {
-        const adapter = await navigator.gpu?.requestAdapter();
-        if (adapter) {
-            // Request device with adapter's maximum supported limits
-            gpuDevice = await adapter.requestDevice({
-                requiredLimits: {
-                    maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
-                    maxComputeWorkgroupSizeX: adapter.limits.maxComputeWorkgroupSizeX,
-                    maxComputeWorkgroupSizeY: adapter.limits.maxComputeWorkgroupSizeY,
-                    maxComputeWorkgroupSizeZ: adapter.limits.maxComputeWorkgroupSizeZ,
-                    maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-                    maxBufferSize: adapter.limits.maxBufferSize,
-                }
-            });
-            console.log(`[Worker] GPU Device created with maxComputeInvocations=${gpuDevice.limits.maxComputeInvocationsPerWorkgroup}`);
-        }
-    } catch (e) {
-        console.warn('[Worker] Could not create GPU device with max limits, using WebLLM defaults:', e);
-    }
+    // Patch adapter.requestDevice so WebLLM's internal detectGPUDevice()
+    // creates a device with max compute limits
+    const restorePatch = patchWebGPULimits();
 
-    engine = await webllm.CreateMLCEngine(modelId, {
-        initProgressCallback: (progress) => {
-            self.postMessage({
-                type: "INIT_PROGRESS",
-                payload: {
-                    progress: progress.progress,
-                    text: progress.text,
-                    timeElapsed: (Date.now() - startTime) / 1000
-                }
-            });
-        },
-        logLevel: "SILENT",
-        ...(gpuDevice ? { gpuDevice } : {})
-    });
+    try {
+        engine = await webllm.CreateMLCEngine(modelId, {
+            initProgressCallback: (progress) => {
+                self.postMessage({
+                    type: "INIT_PROGRESS",
+                    payload: {
+                        progress: progress.progress,
+                        text: progress.text,
+                        timeElapsed: (Date.now() - startTime) / 1000
+                    }
+                });
+            },
+            logLevel: "SILENT",
+        });
+    } finally {
+        // Always restore original method, even if init fails
+        restorePatch();
+    }
 
     currentModelId = modelId;
     self.postMessage({ type: "READY" });

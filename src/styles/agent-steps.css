@@ -1,0 +1,542 @@
+/**
+ * MIMI Agent — Premium Step Visualization Styles
+ * 
+ * Glassmorphism + animated gradients + micro-interactions
+ * Designed to make users never want to use Manus again.
+ * 
+ * © 2026 MIMI Tech AI.
+ */
+
+/* ═══════════════════════════════════════════════════════════
+   STEPS PANEL
+   ═══════════════════════════════════════════════════════════ */
+
+.steps-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: rgba(10, 10, 20, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(130, 60, 255, 0.2) transparent;
+}
+
+.steps-panel::-webkit-scrollbar {
+    width: 4px;
+}
+
+.steps-panel::-webkit-scrollbar-thumb {
+    background: rgba(130, 60, 255, 0.2);
+    border-radius: 4px;
+}
+
+/* ── Header ──────────────────────────────── */
+
+.steps-header {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(10, 10, 20, 0.85);
+    backdrop-filter: blur(16px);
+}
+
+.steps-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.steps-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.steps-count {
+    font-size: 15px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    font-variant-numeric: tabular-nums;
+}
+
+.steps-header-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 12px;
+}
+
+.steps-timer {
+    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 12px;
+}
+
+.steps-plan-title {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 8px;
+    line-height: 1.4;
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Progress Bar ───────────────────────── */
+
+.steps-progress-track {
+    height: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.steps-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #a855f7, #7c3aed, #00c8ff, #a855f7);
+    background-size: 200% 100%;
+    border-radius: 3px;
+    animation: shimmer 2s linear infinite;
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progress-complete {
+    background: linear-gradient(90deg, #22c55e, #34d399);
+    animation: none;
+}
+
+/* ── Steps List ─────────────────────────── */
+
+.steps-list {
+    flex: 1;
+    padding: 12px 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* ── Individual Step ─────────────────────── */
+
+.step-row {
+    display: flex;
+    gap: 12px;
+    padding: 8px 4px;
+    transition: background 0.2s;
+}
+
+.step-row:hover {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+}
+
+/* Timeline line */
+.step-timeline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 20px;
+    flex-shrink: 0;
+    padding-top: 2px;
+}
+
+.step-connector {
+    width: 2px;
+    flex: 1;
+    min-height: 16px;
+    margin-top: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 1px;
+    transition: background 0.5s;
+}
+
+.connector-done {
+    background: linear-gradient(to bottom, #22c55e, rgba(34, 197, 94, 0.15));
+}
+
+/* Step content */
+.step-content {
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 4px;
+}
+
+.step-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.3;
+}
+
+.step-done .step-title {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.step-running .step-title {
+    color: #c4b5fd;
+}
+
+.step-failed .step-title {
+    color: #f87171;
+}
+
+.step-duration {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.step-tool-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.step-description {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 2px;
+    line-height: 1.4;
+}
+
+/* Step progress within step */
+.step-progress-track {
+    height: 2px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+
+.step-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #a855f7, #00c8ff);
+    border-radius: 2px;
+    animation: pulse-width 1.5s ease-in-out infinite;
+}
+
+.step-error {
+    font-size: 11px;
+    color: #f87171;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: rgba(248, 113, 113, 0.05);
+    border: 1px solid rgba(248, 113, 113, 0.1);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Status icons */
+.step-icon-done {
+    color: #22c55e;
+    filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.4));
+}
+
+.step-icon-running {
+    color: #a855f7;
+    filter: drop-shadow(0 0 8px rgba(130, 60, 255, 0.5));
+}
+
+.step-icon-failed {
+    color: #f87171;
+    filter: drop-shadow(0 0 6px rgba(248, 113, 113, 0.4));
+}
+
+.step-icon-skipped {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.step-icon-pending {
+    color: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Completion Banner ────────────────────── */
+
+.steps-complete-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 12px 16px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(52, 211, 153, 0.05));
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: #34d399;
+    font-weight: 500;
+}
+
+/* ── Idle State ────────────────────────────── */
+
+.steps-idle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.steps-idle-content {
+    text-align: center;
+    padding: 32px 24px;
+    max-width: 260px;
+}
+
+.steps-idle-icon {
+    color: rgba(130, 60, 255, 0.30);
+    margin: 0 auto 16px;
+}
+
+.steps-idle-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 8px;
+}
+
+.steps-idle-text {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.25);
+    line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   THINKING BAR
+   ═══════════════════════════════════════════════════════════ */
+
+.thinking-bar {
+    position: relative;
+    border-radius: 10px;
+    background: rgba(15, 15, 25, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    margin: 8px 12px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+}
+
+.thinking-bar-active {
+    border-color: rgba(130, 60, 255, 0.18);
+}
+
+.thinking-bar-complete {
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.thinking-bar-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    min-height: 36px;
+}
+
+.thinking-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    overflow: hidden;
+}
+
+.thinking-bar-pulse {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a855f7;
+    filter: drop-shadow(0 0 4px rgba(130, 60, 255, 0.4));
+}
+
+.thinking-bar-icon-static {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.thinking-bar-complete .thinking-bar-icon-static {
+    color: #22c55e;
+}
+
+.thinking-bar-agent {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 12px;
+}
+
+.thinking-bar-separator {
+    color: rgba(255, 255, 255, 0.15);
+}
+
+.thinking-bar-status {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.thinking-bar-tool {
+    display: inline-flex;
+    color: #a78bfa;
+}
+
+.thinking-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.thinking-bar-timer {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.thinking-bar-expand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    transition: color 0.2s, background 0.2s;
+}
+
+.thinking-bar-expand:hover {
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Animated glow border */
+.thinking-bar-glow {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg,
+            transparent,
+            #a855f7,
+            #7c3aed,
+            #00c8ff,
+            transparent);
+    background-size: 300% 100%;
+    animation: glow-slide 2.5s linear infinite;
+}
+
+.thinking-bar-complete .thinking-bar-glow {
+    background: linear-gradient(90deg,
+            transparent,
+            #22c55e,
+            #34d399,
+            #22c55e,
+            transparent);
+    background-size: 300% 100%;
+    animation: glow-slide 3s linear infinite;
+}
+
+/* Expandable thinking content */
+.thinking-bar-content {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+}
+
+.thinking-bar-content pre {
+    padding: 10px 14px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    color: rgba(255, 255, 255, 0.35);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+@keyframes glow-slide {
+    0% {
+        background-position: 300% 0;
+    }
+
+    100% {
+        background-position: -300% 0;
+    }
+}
+
+@keyframes pulse-width {
+
+    0%,
+    100% {
+        opacity: 0.7;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+
+    .steps-progress-fill,
+    .step-progress-fill,
+    .thinking-bar-glow {
+        animation: none;
+    }
+
+    .step-row,
+    .thinking-bar {
+        transition: none;
+    }
+}

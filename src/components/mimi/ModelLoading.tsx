@@ -96,13 +96,13 @@ export default function ModelLoading({
                 />
 
                 {/* Icon Container */}
-                <div className="relative w-32 h-32 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center backdrop-blur-sm">
+                <div className="relative w-32 h-32 rounded-full bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center backdrop-blur-sm">
                     <motion.div
                         animate={{ rotate: 360 }}
                         transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
                         className="absolute inset-2 rounded-full border border-dashed border-cyan-500/30"
                     />
-                    <Brain className="w-12 h-12 text-cyan-400" />
+                    <Brain className="w-12 h-12 text-purple-400" />
                 </div>
 
                 {/* Download Indicator */}
@@ -112,7 +112,7 @@ export default function ModelLoading({
                     transition={{ delay: 0.3 }}
                     className="absolute -bottom-2 -right-2 w-10 h-10 rounded-full bg-black border border-white/20 flex items-center justify-center"
                 >
-                    <Download className="w-5 h-5 text-cyan-400 animate-bounce" />
+                    <Download className="w-5 h-5 text-purple-400 animate-bounce" />
                 </motion.div>
             </motion.div>
 
@@ -141,7 +141,7 @@ export default function ModelLoading({
                 <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="text-cyan-400/70 text-sm text-center mb-4"
+                    className="text-purple-400/70 text-sm text-center mb-4"
                 >
                     ⏱ {eta}
                 </motion.p>
@@ -203,7 +203,7 @@ export default function ModelLoading({
                     <span>Einmalig</span>
                 </div>
 
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-sm">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-purple-400 text-sm">
                     <WifiOff className="w-4 h-4" />
                     <span>Danach offline nutzbar</span>
                 </div>

@@ -136,9 +136,9 @@ export function OnboardingTour({ onComplete }: OnboardingTourProps) {
                             initial={{ scale: 0.5, rotate: -15 }}
                             animate={{ scale: 1, rotate: 0 }}
                             transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
-                            className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/20 flex items-center justify-center"
+                            className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-purple-500/20 flex items-center justify-center"
                         >
-                            <step.icon className="w-8 h-8 text-cyan-400" />
+                            <step.icon className="w-8 h-8 text-purple-400" />
                         </motion.div>
 
                         {/* Content */}
@@ -160,9 +160,9 @@ export function OnboardingTour({ onComplete }: OnboardingTourProps) {
                                 <div
                                     key={i}
                                     className={`h-1.5 rounded-full transition-all duration-300 ${i === currentStep
-                                        ? "w-6 bg-cyan-400"
+                                        ? "w-6 bg-purple-400"
                                         : i < currentStep
-                                            ? "w-1.5 bg-cyan-400/50"
+                                            ? "w-1.5 bg-purple-400/50"
                                             : "w-1.5 bg-white/20"
                                         }`}
                                 />
@@ -180,7 +180,7 @@ export function OnboardingTour({ onComplete }: OnboardingTourProps) {
 
                             <Button
                                 onClick={handleNext}
-                                className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/20 px-5 gap-2"
+                                className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/20 px-5 gap-2"
                                 size="sm"
                             >
                                 {isLastStep ? "Starten" : "Weiter"}

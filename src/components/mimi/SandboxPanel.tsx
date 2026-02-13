@@ -13,7 +13,7 @@
 
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
     X,
     ChevronRight,
@@ -31,25 +31,45 @@ import {
     Play,
     Loader2,
     Package,
-    Database
+    Database,
+    ListChecks,
+    Monitor,
+    Tablet,
+    Smartphone,
+    RotateCcw,
+    Globe,
+    Sparkles
 } from 'lucide-react';
 import type { SandboxState, SandboxActions, SandboxFile, TerminalLine } from '@/hooks/useSandbox';
 import type { PackageInfo } from '@/lib/mimi/workspace/services/package-manager';
 import { getMimiSQLite, type QueryResult } from '@/lib/mimi/workspace/services/database';
+import AgentStepsPanel from './components/AgentStepsPanel';
+import type { UITaskPlan } from '@/hooks/mimi/useAgentEvents';
 
 interface SandboxPanelProps {
     state: SandboxState;
     actions: SandboxActions;
     className?: string;
+    // Agent plan integration
+    agentPlan?: UITaskPlan | null;
+    agentElapsedTime?: number;
+    agentStatus?: string;
+    activeAgent?: string | null;
+    // File activity from agent events
+    recentFiles?: { path: string; action: 'create' | 'update' | 'delete'; timestamp: number }[];
 }
 
-type TabType = 'files' | 'terminal' | 'preview' | 'packages' | 'database';
+type TabType = 'steps' | 'files' | 'terminal' | 'preview' | 'packages' | 'database';
 
 /**
  * MIMI Tech AI - Sandbox Panel
  */
-export function SandboxPanel({ state, actions, className = '' }: SandboxPanelProps) {
-    const [activeTab, setActiveTab] = useState<TabType>('files');
+export function SandboxPanel({
+    state, actions, className = '',
+    agentPlan, agentElapsedTime = 0, agentStatus = 'idle', activeAgent,
+    recentFiles = []
+}: SandboxPanelProps) {
+    const [activeTab, setActiveTab] = useState<TabType>(agentPlan ? 'steps' : 'files');
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/workspace']));
     const [copied, setCopied] = useState<string | null>(null);
     const terminalEndRef = useRef<HTMLDivElement>(null);
@@ -59,9 +79,16 @@ export function SandboxPanel({ state, actions, className = '' }: SandboxPanelPro
         terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [state.terminalLines]);
 
-    // Auto-switch to terminal when there's activity
+    // Auto-switch to steps tab when agent starts planning
     useEffect(() => {
-        if (state.terminalLines.length > 0 && activeTab !== 'terminal') {
+        if (agentPlan && activeTab !== 'steps') {
+            setActiveTab('steps');
+        }
+    }, [agentPlan, activeTab]);
+
+    // Auto-switch to terminal when there's activity (only if not in steps)
+    useEffect(() => {
+        if (state.terminalLines.length > 0 && activeTab !== 'terminal' && activeTab !== 'steps') {
             setActiveTab('terminal');
         }
     }, [state.terminalLines.length, activeTab]);
@@ -152,12 +179,19 @@ export function SandboxPanel({ state, actions, className = '' }: SandboxPanelPro
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-slate-700/50">
+            <div className="flex border-b border-slate-700/50 overflow-x-auto">
+                <TabButton
+                    active={activeTab === 'steps'}
+                    onClick={() => setActiveTab('steps')}
+                    icon={<ListChecks className="w-4 h-4" />}
+                    label="Steps"
+                    badge={agentPlan ? agentPlan.steps.filter(s => s.status === 'done').length || undefined : undefined}
+                />
                 <TabButton
                     active={activeTab === 'files'}
                     onClick={() => setActiveTab('files')}
                     icon={<FileCode className="w-4 h-4" />}
-                    label="Files"
+                    label="Code"
                     badge={state.files.length || undefined}
                 />
                 <TabButton
@@ -172,7 +206,6 @@ export function SandboxPanel({ state, actions, className = '' }: SandboxPanelPro
                     onClick={() => setActiveTab('preview')}
                     icon={<Eye className="w-4 h-4" />}
                     label="Preview"
-                    disabled={!state.previewUrl}
                 />
                 <TabButton
                     active={activeTab === 'packages'}
@@ -191,6 +224,14 @@ export function SandboxPanel({ state, actions, className = '' }: SandboxPanelPro
 
             {/* Content */}
             <div className="flex-1 overflow-hidden">
+                {activeTab === 'steps' && (
+                    <AgentStepsPanel
+                        plan={agentPlan || null}
+                        elapsedTime={agentElapsedTime}
+                        agentStatus={agentStatus}
+                        activeAgent={activeAgent}
+                    />
+                )}
                 {activeTab === 'files' && (
                     <FilesTab
                         files={state.files}
@@ -211,7 +252,7 @@ export function SandboxPanel({ state, actions, className = '' }: SandboxPanelPro
                     />
                 )}
                 {activeTab === 'preview' && (
-                    <PreviewTab url={state.previewUrl} />
+                    <PreviewTab url={state.previewUrl} files={state.files} />
                 )}
                 {activeTab === 'packages' && (
                     <PackagesTab
@@ -510,36 +551,140 @@ function TerminalTab({
     );
 }
 
-function PreviewTab({ url }: { url: string | null }) {
-    if (!url) {
+type DeviceMode = 'desktop' | 'tablet' | 'mobile';
+const DEVICE_WIDTHS: Record<DeviceMode, string> = { desktop: '100%', tablet: '768px', mobile: '375px' };
+
+function PreviewTab({ url, files }: { url: string | null; files: SandboxFile[] }) {
+    const [device, setDevice] = useState<DeviceMode>('desktop');
+    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+
+    // Build blob URL from HTML files in workspace
+    const htmlFile = useMemo(() => {
+        return files.find(f =>
+            f.name.endsWith('.html') || f.language === 'html'
+        );
+    }, [files]);
+
+    useEffect(() => {
+        // Priority: explicit URL > HTML file from workspace
+        if (url) {
+            setBlobUrl(null);
+            return;
+        }
+        if (htmlFile) {
+            let html = htmlFile.content;
+            // Inline CSS files into the HTML
+            const cssFiles = files.filter(f => f.name.endsWith('.css') || f.language === 'css');
+            for (const css of cssFiles) {
+                html = html.replace(
+                    new RegExp(`<link[^>]*href=["']${css.name.replace('.', '\\.')}["'][^>]*>`, 'gi'),
+                    `<style>/* ${css.name} */\n${css.content}</style>`
+                );
+                // If no link tag found, inject before </head>
+                if (!html.includes(css.content)) {
+                    html = html.replace('</head>', `<style>/* ${css.name} */\n${css.content}</style>\n</head>`);
+                }
+            }
+            // Inline JS files
+            const jsFiles = files.filter(f => f.name.endsWith('.js') || f.language === 'javascript');
+            for (const js of jsFiles) {
+                html = html.replace(
+                    new RegExp(`<script[^>]*src=["']${js.name.replace('.', '\\.')}["'][^>]*>\\s*</script>`, 'gi'),
+                    `<script>/* ${js.name} */\n${js.content}</script>`
+                );
+            }
+            const blob = new Blob([html], { type: 'text/html' });
+            const newUrl = URL.createObjectURL(blob);
+            setBlobUrl(prev => {
+                if (prev) URL.revokeObjectURL(prev);
+                return newUrl;
+            });
+        } else {
+            setBlobUrl(prev => {
+                if (prev) URL.revokeObjectURL(prev);
+                return null;
+            });
+        }
+        return () => {
+            // Cleanup handled by state setter
+        };
+    }, [url, htmlFile, files]);
+
+    const handleRefresh = useCallback(() => {
+        if (iframeRef.current) {
+            const src = iframeRef.current.src;
+            iframeRef.current.src = '';
+            setTimeout(() => {
+                if (iframeRef.current) iframeRef.current.src = src;
+            }, 50);
+        }
+    }, []);
+
+    const previewSrc = url || blobUrl;
+
+    // No preview available
+    if (!previewSrc && !url?.startsWith('data:image/')) {
         return (
-            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-                No preview available
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-500">
+                <div className="w-16 h-16 rounded-2xl bg-slate-800/50 border border-slate-700/40 flex items-center justify-center">
+                    <Globe className="w-8 h-8 text-gray-600" />
+                </div>
+                <div className="text-center">
+                    <p className="text-sm font-medium text-gray-400">No preview available</p>
+                    <p className="text-xs mt-1 text-gray-600">Create an HTML file to see a live preview</p>
+                </div>
             </div>
         );
     }
 
-    // Check if it's an image data URI
-    if (url.startsWith('data:image/')) {
+    // Image preview
+    if (url?.startsWith('data:image/')) {
         return (
             <div className="h-full bg-slate-900 flex items-center justify-center p-4">
-                <img
-                    src={url}
-                    alt="Preview"
-                    className="max-w-full max-h-full object-contain rounded border border-slate-700 shadow-lg"
-                />
+                <img src={url} alt="Preview" className="max-w-full max-h-full object-contain rounded border border-slate-700 shadow-lg" />
             </div>
         );
     }
 
     return (
-        <div className="h-full bg-white">
-            <iframe
-                src={url}
-                className="w-full h-full border-0"
-                title="Preview"
-                sandbox="allow-scripts allow-same-origin"
-            />
+        <div className="h-full flex flex-col bg-slate-950">
+            {/* Device toolbar */}
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/60 border-b border-slate-700/40">
+                <div className="flex items-center gap-1">
+                    {([['desktop', Monitor], ['tablet', Tablet], ['mobile', Smartphone]] as const).map(([mode, Icon]) => (
+                        <button
+                            key={mode}
+                            onClick={() => setDevice(mode)}
+                            className={`p-1.5 rounded transition-colors ${device === mode
+                                    ? 'bg-cyan-500/20 text-cyan-400'
+                                    : 'text-gray-500 hover:text-gray-300 hover:bg-slate-700/40'
+                                }`}
+                            title={mode}
+                        >
+                            <Icon className="w-3.5 h-3.5" />
+                        </button>
+                    ))}
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 font-mono">{DEVICE_WIDTHS[device]}</span>
+                    <button onClick={handleRefresh} className="p-1.5 text-gray-500 hover:text-gray-300 rounded hover:bg-slate-700/40 transition-colors" title="Refresh">
+                        <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+            </div>
+            {/* Iframe */}
+            <div className="flex-1 flex items-start justify-center overflow-auto bg-slate-950/80 p-2">
+                <div style={{ width: DEVICE_WIDTHS[device], maxWidth: '100%', height: '100%' }} className="transition-all duration-300 ease-out">
+                    <iframe
+                        ref={iframeRef}
+                        src={previewSrc || undefined}
+                        className="w-full h-full border border-slate-700/30 rounded-lg bg-white shadow-2xl"
+                        title="Preview"
+                        sandbox="allow-scripts allow-same-origin allow-modals allow-popups"
+                    />
+                </div>
+            </div>
         </div>
     );
 }

@@ -105,7 +105,7 @@ describe('ChatHeader', () => {
                     {...defaultProps}
                     onPDFUpload={mockUpload}
                     uploadedDocuments={[
-                        { id: '1', name: 'test.pdf', chunks: [{ content: 'test' }], pageCount: 1, uploadDate: new Date() },
+                        { id: '1', name: 'test.pdf', chunks: [{ text: 'test', pageNumber: 1, chunkIndex: 0 }], pageCount: 1, extractedAt: new Date() },
                     ]}
                 />
             );

@@ -28,11 +28,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { AgentStatus, Artifact } from "@/lib/mimi/inference-engine";
 import type { PDFDocument } from "@/lib/mimi/pdf-processor";
-import { SandboxPanel } from "./SandboxPanel";
+import { getChatHistory, type ConversationSummary, type SerializedMessage } from "@/lib/mimi/chat-history";
+// SandboxPanel removed — now rendered in page.tsx right panel
 import { ChatHeader } from "./components/ChatHeader";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MessageBubble, type Message } from "./components/MessageBubble";
-import { useSandbox } from "@/hooks/useSandbox";
+// useSandbox removed — sandbox managed at page level
+import '@/styles/mimi-agent.css';
+import { useAgentEvents } from "@/hooks/mimi/useAgentEvents";
+import AgentThinkingBar from "./components/AgentThinkingBar";
+import '@/styles/agent-steps.css';
 
 // Message interface imported from ./components/MessageBubble
 
@@ -115,13 +120,173 @@ export default function MimiAgentChat({
     const [codeOutput, setCodeOutput] = useState<Record<string, string>>({});
     const [chartOutput, setChartOutput] = useState<Record<string, string>>({});  // NEU: Chart-Daten
 
-    // Sandbox state for agent operations
-    const [sandboxState, sandboxActions] = useSandbox();
+    // Chat History State
+    const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+    const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const historyServiceRef = useRef<ReturnType<typeof getChatHistory> | null>(null);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Sandbox actions — get from window if page-level passes them
+    const sandboxActions = useRef<any>(null);
+
+    // Agent events state — powers ThinkingBar + StepsPanel
+    const agentEvents = useAgentEvents();
+
+    // Auto workspace — disabled, managed at page level now
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const isSendingVoiceRef = useRef(false);
     const processedArtifactsRef = useRef<Set<string>>(new Set()); // Track processed artifacts to prevent loops
+
+    // ─── Chat History: Init + Auto-Load ──────────────────────────────
+    useEffect(() => {
+        const initHistory = async () => {
+            try {
+                const service = getChatHistory();
+                await service.init();
+                historyServiceRef.current = service;
+
+                // Load last active conversation
+                const lastId = service.getActiveConversationId();
+                if (lastId) {
+                    const conv = await service.loadConversation(lastId);
+                    if (conv) {
+                        const restored: Message[] = conv.messages.map((m: SerializedMessage) => ({
+                            id: m.id,
+                            role: m.role as 'user' | 'assistant',
+                            content: m.content,
+                            timestamp: new Date(m.timestamp),
+                            artifacts: m.artifacts?.map(a => ({
+                                type: a.type as Artifact['type'],
+                                language: a.language,
+                                title: a.title ?? '',
+                                content: a.content,
+                            })),
+                        }));
+                        setMessages(restored);
+                        setActiveConversationId(lastId);
+                    }
+                }
+
+                // Refresh conversation list
+                const list = await service.listConversations();
+                setConversations(list);
+            } catch (err) {
+                console.warn('[MimiChat] Chat history init failed:', err);
+            }
+        };
+        initHistory();
+    }, []);
+
+    // ─── Chat History: Debounced Auto-Save ──────────────────────────
+    useEffect(() => {
+        if (!historyServiceRef.current || messages.length === 0) return;
+
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(async () => {
+            try {
+                const service = historyServiceRef.current!;
+                const serialized: SerializedMessage[] = messages.map(m => ({
+                    id: m.id,
+                    role: m.role,
+                    content: m.content,
+                    timestamp: m.timestamp.toISOString(),
+                    artifacts: m.artifacts?.map((a, idx) => ({
+                        id: `${m.id}_artifact_${idx}`,
+                        type: a.type,
+                        language: a.language,
+                        title: a.title,
+                        content: a.content,
+                    })),
+                }));
+
+                // Create new conversation or save to existing
+                if (!activeConversationId) {
+                    const firstMsg = messages.find(m => m.role === 'user');
+                    const newId = await service.createConversation(firstMsg?.content ?? 'Neuer Chat');
+                    await service.saveConversation(newId, serialized);
+                    setActiveConversationId(newId);
+                } else {
+                    await service.saveConversation(activeConversationId, serialized);
+                }
+            } catch (err) {
+                console.warn('[MimiChat] Auto-save failed:', err);
+            }
+        }, 1500);
+
+        return () => {
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        };
+    }, [messages, activeConversationId]);
+
+    // ─── Chat History: Conversation Management ──────────────────────
+    const loadConversation = useCallback(async (id: string) => {
+        const service = historyServiceRef.current;
+        if (!service) return;
+        try {
+            const conv = await service.loadConversation(id);
+            if (conv) {
+                const restored: Message[] = conv.messages.map((m: SerializedMessage) => ({
+                    id: m.id,
+                    role: m.role as 'user' | 'assistant',
+                    content: m.content,
+                    timestamp: new Date(m.timestamp),
+                    artifacts: m.artifacts?.map(a => ({
+                        type: a.type as Artifact['type'],
+                        language: a.language,
+                        title: a.title ?? '',
+                        content: a.content,
+                    })),
+                }));
+                setMessages(restored);
+                setActiveConversationId(id);
+                service.setActiveConversationId(id);
+                setCurrentResponse('');
+                setCodeOutput({});
+                setChartOutput({});
+                processedArtifactsRef.current.clear();
+            }
+        } catch (err) {
+            console.warn('[MimiChat] Load conversation failed:', err);
+        }
+    }, []);
+
+    const newConversation = useCallback(() => {
+        setMessages([]);
+        setActiveConversationId(null);
+        setCurrentResponse('');
+        setCodeOutput({});
+        setChartOutput({});
+        processedArtifactsRef.current.clear();
+        historyServiceRef.current?.clearActiveConversationId();
+    }, []);
+
+    const deleteConversation = useCallback(async (id: string) => {
+        const service = historyServiceRef.current;
+        if (!service) return;
+        try {
+            await service.deleteConversation(id);
+            if (id === activeConversationId) {
+                newConversation();
+            }
+            const list = await service.listConversations();
+            setConversations(list);
+        } catch (err) {
+            console.warn('[MimiChat] Delete conversation failed:', err);
+        }
+    }, [activeConversationId, newConversation]);
+
+    const refreshConversations = useCallback(async () => {
+        const service = historyServiceRef.current;
+        if (!service) return;
+        try {
+            const list = await service.listConversations();
+            setConversations(list);
+        } catch (err) {
+            console.warn('[MimiChat] Refresh conversations failed:', err);
+        }
+    }, []);
 
     // Auto-scroll
     useEffect(() => {
@@ -248,14 +413,14 @@ export default function MimiAgentChat({
                 chartData = result.chartBase64;
 
                 // Show in Sandbox Terminal
-                sandboxActions.addTerminalLine(`> Python Executed:`, 'info');
-                if (output) output.split('\n').forEach(line => sandboxActions.addTerminalLine(line, 'output'));
+                sandboxActions.current?.addTerminalLine?.(`> Python Executed:`, 'info');
+                if (output) output.split('\n').forEach(line => sandboxActions.current?.addTerminalLine?.(line, 'output'));
 
                 if (chartData) {
                     console.log('[MimiChat] 🖼️ Setting preview URL with chart data...');
                     const dataUrl = `data:image/png;base64,${chartData}`;
-                    sandboxActions.setPreviewUrl(dataUrl);
-                    sandboxActions.addTerminalLine('> Chart generated in Preview tab', 'info');
+                    sandboxActions.current?.setPreviewUrl?.(dataUrl);
+                    sandboxActions.current?.addTerminalLine?.('> Chart generated in Preview tab', 'info');
                 } else {
                     console.log('[MimiChat] No chart data returned from execution.');
                 }
@@ -270,11 +435,11 @@ export default function MimiAgentChat({
 
                 if (res.error) {
                     output = `SQL Error: ${res.error}`;
-                    sandboxActions.addTerminalLine(`SQL Error: ${res.error}`, 'error');
+                    sandboxActions.current?.addTerminalLine?.(`SQL Error: ${res.error}`, 'error');
                 } else {
                     const rowCount = res.values.length;
                     output = `✅ Query executed successfully. ${rowCount} rows returned.\n[Columns: ${res.columns.join(', ')}]`;
-                    sandboxActions.addTerminalLine(`SQL Success: ${rowCount} rows`, 'info');
+                    sandboxActions.current?.addTerminalLine?.(`SQL Success: ${rowCount} rows`, 'info');
 
                     // Format table for output
                     if (rowCount > 0) {
@@ -459,13 +624,13 @@ export default function MimiAgentChat({
     // to be extra safe and only react to agentStatus changes
     useEffect(() => {
         if (agentStatus === 'coding') {
-            sandboxActions.setAgentActivity('Writing code...');
+            sandboxActions.current?.setAgentActivity?.('Writing code...');
         } else if (agentStatus === 'calculating') {
-            sandboxActions.setAgentActivity('Calculating...');
+            sandboxActions.current?.setAgentActivity?.('Calculating...');
         } else if (agentStatus === 'generating') {
-            sandboxActions.setAgentActivity('Generating...');
+            sandboxActions.current?.setAgentActivity?.('Generating...');
         } else {
-            sandboxActions.setAgentActivity(null);
+            sandboxActions.current?.setAgentActivity?.(null);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [agentStatus]);
@@ -492,7 +657,7 @@ export default function MimiAgentChat({
                                         : '.txt';
 
                     const fileName = `code_${idx}${ext}`;
-                    sandboxActions.addFile({
+                    sandboxActions.current?.addFile?.({
                         path: `/workspace/${fileName}`,
                         name: fileName,
                         content: artifact.content,
@@ -521,42 +686,28 @@ export default function MimiAgentChat({
     }, [messages, agentStatus]); // sandboxActions is stable via useMemo
 
     return (
-        <div className="flex h-full">
-            {/* Main Chat Area */}
-            <div className={cn(
-                "flex flex-col h-full transition-all duration-300",
-                sandboxState.isOpen ? "w-1/2" : "w-full"
-            )}>
-                {/* Header - Extracted Component */}
-                <ChatHeader
-                    isReady={isReady}
-                    agentStatus={agentStatus}
-                    memoryUsageMB={memoryUsageMB}
-                    isMemoryWarning={isMemoryWarning}
-                    isVisionReady={isVisionReady}
-                    onUnloadVision={onUnloadVision}
-                    onPDFUpload={onPDFUpload}
-                    uploadedDocuments={uploadedDocuments}
-                    isUploadingPDF={isUploadingPDF}
-                    onDeleteDocument={onDeleteDocument}
-                    onImageUpload={onImageUpload}
-                    uploadedImage={uploadedImage}
-                    currentLanguage={currentLanguage}
-                    onLanguageChange={onLanguageChange}
-                    onClearChat={clearChat}
-                    messagesCount={messages.length}
-                    onExport={exportConversation}
-                    copiedId={copiedId}
-                />
+        <div className="flex flex-col h-full">
+            {/* Agent Thinking Bar — shows above messages when agent is active */}
+            <AgentThinkingBar
+                status={agentEvents.agentStatus}
+                agent={agentEvents.activeAgent}
+                activeTool={agentEvents.activeTool}
+                elapsedTime={agentEvents.elapsedTime}
+                thinkingContent={agentEvents.thinkingContent}
+                isThinking={agentEvents.isThinking}
+            />
 
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {messages.length === 0 && !currentResponse && !interimText && (
+            {/* Messages */}
+            <div className="mimi-chat-messages space-y-4">
+                {
+                    messages.length === 0 && !currentResponse && !interimText && (
                         <WelcomeScreen onPromptSelect={(prompt) => setInput(prompt)} />
-                    )}
+                    )
+                }
 
-                    <AnimatePresence mode="popLayout">
-                        {messages.map((message, idx) => {
+                < AnimatePresence mode="popLayout" >
+                    {
+                        messages.map((message, idx) => {
                             // Check if this is the last assistant message
                             const isLastAssistant = message.role === 'assistant' &&
                                 idx === messages.findLastIndex(m => m.role === 'assistant');
@@ -580,11 +731,13 @@ export default function MimiAgentChat({
                                     isLastAssistantMessage={isLastAssistant}
                                 />
                             );
-                        })}
-                    </AnimatePresence>
+                        })
+                    }
+                </AnimatePresence >
 
-                    {/* Streaming Response */}
-                    {currentResponse && (
+                {/* Streaming Response */}
+                {
+                    currentResponse && (
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -593,15 +746,17 @@ export default function MimiAgentChat({
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-cyan to-brand-purple flex items-center justify-center flex-shrink-0">
                                 {STATUS_ICONS[agentStatus]}
                             </div>
-                            <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-white/5 text-white/90 border border-white/10">
+                            <div className="mimi-msg-assistant">
                                 <p className="whitespace-pre-wrap">{currentResponse}</p>
                                 <span className="inline-block w-2 h-4 bg-brand-cyan ml-1 animate-pulse" />
                             </div>
                         </motion.div>
-                    )}
+                    )
+                }
 
-                    {/* Interim Voice Text */}
-                    {interimText && (
+                {/* Interim Voice Text */}
+                {
+                    interimText && (
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -614,86 +769,90 @@ export default function MimiAgentChat({
                                 </div>
                             </div>
                         </motion.div>
+                    )
+                }
+
+                <div ref={messagesEndRef} />
+            </div >
+
+            {/* Input — Manus AI Style */}
+            < div className="mimi-chat-input-container" >
+                <div className="mimi-chat-input-wrapper">
+                    {/* Voice Button */}
+                    {onVoiceInput && (
+                        <button
+                            onClick={onVoiceInput}
+                            disabled={!isReady || isGenerating}
+                            className={cn(
+                                "mimi-input-btn mimi-input-btn-attach",
+                                isRecording && "!text-red-400 !bg-red-500/15 animate-pulse"
+                            )}
+                            title={isRecording ? "Aufnahme beenden" : "Spracheingabe starten"}
+                        >
+                            {isRecording ? (
+                                <MicOff className="w-4 h-4" />
+                            ) : (
+                                <Mic className="w-4 h-4" />
+                            )}
+                        </button>
                     )}
 
-                    <div ref={messagesEndRef} />
-                </div>
+                    <Textarea
+                        ref={textareaRef}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder={
+                            isRecording
+                                ? "🎤 Sprich jetzt..."
+                                : isReady
+                                    ? "Type a message..."
+                                    : "MIMI wird geladen..."
+                        }
+                        disabled={!isReady || isGenerating || isRecording}
+                        className="flex-1 min-h-[36px] max-h-28 resize-none bg-transparent border-none text-white/85 placeholder:text-white/25 focus:ring-0 focus:border-none text-sm p-0"
+                        rows={1}
+                    />
 
-                {/* Input mit Voice */}
-                <div className="p-4 border-t border-white/10 bg-black/20">
-                    <div className="flex gap-2">
-                        {/* Voice Button */}
-                        {onVoiceInput && (
-                            <Button
-                                onClick={onVoiceInput}
-                                disabled={!isReady || isGenerating}
-                                variant="ghost"
-                                className={cn(
-                                    "h-11 w-11 p-0 flex-shrink-0",
-                                    isRecording
-                                        ? "bg-red-500/20 text-red-500 hover:bg-red-500/30 animate-pulse"
-                                        : "text-white/50 hover:text-white hover:bg-white/10"
-                                )}
-                                title={isRecording ? "Aufnahme beenden" : "Spracheingabe starten"}
-                            >
-                                {isRecording ? (
-                                    <MicOff className="w-5 h-5" />
-                                ) : (
-                                    <Mic className="w-5 h-5" />
-                                )}
-                            </Button>
-                        )}
-
-                        <Textarea
-                            ref={textareaRef}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={
-                                isRecording
-                                    ? "🎤 Sprich jetzt..."
-                                    : isReady
-                                        ? "Frag MIMI etwas..."
-                                        : "MIMI wird geladen..."
-                            }
-                            disabled={!isReady || isGenerating || isRecording}
-                            className="flex-1 min-h-[44px] max-h-32 resize-none bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-cyan/50 focus:ring-brand-cyan/20"
-                            rows={1}
-                        />
-
-                        <Button
-                            type={isGenerating ? "button" : "submit"}
-                            onClick={isGenerating ? handleStop : handleSend}
-                            disabled={(!input.trim() && !isGenerating) || !isReady}
-                            className={cn(
-                                "h-11 w-11 p-0 flex-shrink-0 font-medium transition-all",
-                                isGenerating
-                                    ? "bg-red-600 hover:bg-red-700 text-white animate-pulse"
-                                    : "bg-gradient-to-r from-brand-cyan to-brand-blue hover:from-brand-cyan/80 hover:to-brand-blue/80 text-black"
-                            )}
-                            title={isGenerating ? "⏸️ Generation stoppen" : "📤 Nachricht senden"}
+                    {/* Attachment icon */}
+                    {onPDFUpload && (
+                        <button
+                            className="mimi-input-btn mimi-input-btn-attach"
+                            title="Datei anhängen"
+                            onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = '.pdf';
+                                input.onchange = (e) => onPDFUpload(e as unknown as React.ChangeEvent<HTMLInputElement>);
+                                input.click();
+                            }}
                         >
-                            {isGenerating ? (
-                                <Square className="w-5 h-5" />
-                            ) : (
-                                <Send className="w-5 h-5" />
-                            )}
-                        </Button>
-                    </div>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                            </svg>
+                        </button>
+                    )}
 
-                    <p className="text-xs text-white/30 mt-2 text-center">
-                        🔒 Souveräne Intelligenz • 100% Lokal • Keine Daten werden übertragen
-                    </p>
+                    {/* Send / Stop Button */}
+                    <button
+                        onClick={isGenerating ? handleStop : handleSend}
+                        disabled={(!input.trim() && !isGenerating) || !isReady}
+                        className={cn(
+                            "mimi-input-btn",
+                            isGenerating
+                                ? "!bg-red-600 text-white animate-pulse"
+                                : "mimi-input-btn-send"
+                        )}
+                        title={isGenerating ? "⏸️ Stop" : "📤 Senden"}
+                    >
+                        {isGenerating ? (
+                            <Square className="w-4 h-4" />
+                        ) : (
+                            <Send className="w-4 h-4" />
+                        )}
+                    </button>
                 </div>
             </div>
-            {/* End of Main Chat Area */}
-
-            {/* Sandbox Panel - appears when agent creates code */}
-            {sandboxState.isOpen && (
-                <div className="w-1/2 h-full border-l border-white/10">
-                    <SandboxPanel state={sandboxState} actions={sandboxActions} />
-                </div>
-            )}
         </div>
     );
 }
