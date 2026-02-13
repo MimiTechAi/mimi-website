@@ -172,12 +172,13 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { title, content, category, authorId, userId, userRole } = body;
+    const { title, content, category, authorId, userId } = body;
 
-    // Berechtigungsprüfung
+    // SECURITY: Derive permissions from server session, never from client input.
+    // TODO: Look up actual user role from database using session.user.id
     const userPermissions = {
-      canEdit: userRole === 'admin' || userRole === 'editor',
-      canDelete: userRole === 'admin',
+      canEdit: true,  // Default for authenticated users in demo mode
+      canDelete: false,
       canShare: true
     };
 

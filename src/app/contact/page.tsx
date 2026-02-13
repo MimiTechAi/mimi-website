@@ -270,6 +270,7 @@ export default function ContactPage() {
               <button
                 key={svc.value}
                 type="button"
+                aria-pressed={formData.service === svc.value}
                 onClick={() => {
                   setFormData(prev => ({ ...prev, service: svc.value }));
                   setFieldErrors(prev => ({ ...prev, service: undefined }));
@@ -520,7 +521,7 @@ export default function ContactPage() {
                         exit={{ opacity: 0 }}
                       >
                         {error && (
-                          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
+                          <div role="alert" className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
                             <AlertCircle className="text-destructive flex-shrink-0 mt-0.5" size={20} />
                             <div className="flex-1">
                               <p className="text-destructive text-sm">{error}</p>
@@ -625,17 +626,15 @@ export default function ContactPage() {
                 <div className="absolute inset-0 mesh-gradient opacity-10 blur-2xl" />
                 <CardHeader className="relative z-10">
                   <CardTitle className="text-2xl md:text-3xl font-bold">Unsere Erreichbarkeit</CardTitle>
-                  <CardDescription>
-                    <div className="space-y-2 mt-4">
-                      <p className="text-foreground">
-                        <strong>Montag - Freitag:</strong> 9:00 - 18:00 Uhr
-                      </p>
-                      <p className="text-muted-foreground">
-                        Außerhalb dieser Zeiten beantworten wir Ihre Anfrage
-                        am nächsten Werktag.
-                      </p>
-                    </div>
-                  </CardDescription>
+                  <div className="space-y-2 mt-4">
+                    <p className="text-foreground">
+                      <strong>Montag - Freitag:</strong> 9:00 - 18:00 Uhr
+                    </p>
+                    <p className="text-muted-foreground">
+                      Außerhalb dieser Zeiten beantworten wir Ihre Anfrage
+                      am nächsten Werktag.
+                    </p>
+                  </div>
                 </CardHeader>
               </Card>
             </motion.div>

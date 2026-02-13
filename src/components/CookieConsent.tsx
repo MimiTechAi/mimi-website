@@ -96,7 +96,12 @@ export default function CookieConsent() {
   if (!showBanner) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 p-4 sm:p-6 animate-in slide-in-from-bottom duration-500 overflow-x-clip">
+    <div
+      role="dialog"
+      aria-label="Cookie-Einstellungen"
+      aria-modal="false"
+      className="fixed bottom-0 left-0 right-0 z-50 p-4 sm:p-6 animate-in slide-in-from-bottom duration-500 overflow-x-clip"
+    >
       <Card className="w-full max-w-[calc(100vw-2rem)] sm:max-w-4xl mx-auto border-primary/20 bg-card/95 backdrop-blur-lg shadow-2xl">
         <CardContent className="p-4 sm:p-6">
           <div className="flex items-start gap-4">

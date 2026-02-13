@@ -680,3 +680,28 @@ html {
     scroll-behavior: auto !important;
   }
 }
+
+/* ==========================================
+   Page Transition Animation (CSS-only, GPU-composited)
+   Replaces framer-motion template.tsx wrapper
+   ========================================== */
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: pageEnter 0.35s cubic-bezier(0.25, 0.4, 0.25, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+  }
+}

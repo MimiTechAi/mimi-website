@@ -105,7 +105,7 @@ export function MacDock({ items, className = "" }: MacDockProps) {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-white shadow-[0_12px_25px_rgba(0,0,0,0.6)] border border-white/15 group-hover:bg-white/15">
               {item.icon}
             </div>
-            <span className="pointer-events-none select-none text-[10px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
+            <span className="pointer-events-none select-none text-[10px] text-white/80 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-100">
               {item.label}
             </span>
           </button>

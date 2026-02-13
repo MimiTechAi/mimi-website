@@ -698,7 +698,7 @@ export default function MimiAgentChat({
             />
 
             {/* Messages */}
-            <div className="mimi-chat-messages space-y-4">
+            <div className="mimi-chat-messages space-y-4" role="log" aria-label="Chat-Verlauf" aria-live="polite">
                 {
                     messages.length === 0 && !currentResponse && !interimText && (
                         <WelcomeScreen onPromptSelect={(prompt) => setInput(prompt)} />
@@ -787,7 +787,8 @@ export default function MimiAgentChat({
                                 "mimi-input-btn mimi-input-btn-attach",
                                 isRecording && "!text-red-400 !bg-red-500/15 animate-pulse"
                             )}
-                            title={isRecording ? "Aufnahme beenden" : "Spracheingabe starten"}
+                            aria-label={isRecording ? "Aufnahme beenden" : "Spracheingabe starten"}
+                            aria-pressed={isRecording}
                         >
                             {isRecording ? (
                                 <MicOff className="w-4 h-4" />
@@ -802,11 +803,12 @@ export default function MimiAgentChat({
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
+                        aria-label="Nachricht an MIMI"
                         placeholder={
                             isRecording
-                                ? "🎤 Sprich jetzt..."
+                                ? "Sprich jetzt..."
                                 : isReady
-                                    ? "Type a message..."
+                                    ? "Nachricht eingeben..."
                                     : "MIMI wird geladen..."
                         }
                         disabled={!isReady || isGenerating || isRecording}
@@ -818,7 +820,7 @@ export default function MimiAgentChat({
                     {onPDFUpload && (
                         <button
                             className="mimi-input-btn mimi-input-btn-attach"
-                            title="Datei anhängen"
+                            aria-label="PDF-Datei anhängen"
                             onClick={() => {
                                 const input = document.createElement('input');
                                 input.type = 'file';
@@ -843,7 +845,7 @@ export default function MimiAgentChat({
                                 ? "!bg-red-600 text-white animate-pulse"
                                 : "mimi-input-btn-send"
                         )}
-                        title={isGenerating ? "⏸️ Stop" : "📤 Senden"}
+                        aria-label={isGenerating ? "Generierung stoppen" : "Nachricht senden"}
                     >
                         {isGenerating ? (
                             <Square className="w-4 h-4" />
