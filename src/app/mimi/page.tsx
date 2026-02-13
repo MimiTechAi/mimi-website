@@ -659,6 +659,7 @@ export default function MimiPage() {
             <div className="glow-3" />
             <div className="glow-4" />
             <div className="glow-5" />
+            <div className="glow-6" />
 
             {/* Top section labels */}
             <div className="mimi-top-labels">
@@ -672,6 +673,23 @@ export default function MimiPage() {
 
                 {/* ══════════ LEFT PANEL ══════════ */}
                 <div className="mimi-panel panel-left">
+                    {/* Icon Rail Navigation */}
+                    <div className="sidebar-icon-rail">
+                        <div className="icon-rail-item active" data-tooltip="Chat" title="Chat">
+                            💬
+                        </div>
+                        <div className="icon-rail-item" data-tooltip="Knowledge" title="Knowledge">
+                            🧠
+                        </div>
+                        <div className="icon-rail-item" data-tooltip="Files" title="Files">
+                            📁
+                        </div>
+                        <div style={{ marginTop: 'auto' }} />
+                        <div className="icon-rail-item" data-tooltip="Settings" title="Settings" onClick={() => setShowSettings(true)}>
+                            ⚙️
+                        </div>
+                    </div>
+
                     <div className="logo-row">
                         <div className="logo-avatar">M</div>
                         <div className="search-box">
@@ -1358,6 +1376,49 @@ export default function MimiPage() {
                             <div className="settings-row"><span>Neuer Thread</span><kbd>⌘N</kbd></div>
                             <div className="settings-row"><span>Suche fokussieren</span><kbd>⌘K</kbd></div>
                             <div className="settings-row"><span>Schließen / Abbrechen</span><kbd>Esc</kbd></div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ Progress Steps Card (Fixed Bottom-Right) ═══ */}
+            {agentEvents.activePlan && agentEvents.activePlan.length > 0 ? (
+                <div className="progress-card">
+                    <div className="progress-card-title">PROGRESS STEPS</div>
+                    <div className="progress-steps">
+                        {agentEvents.activePlan.map((step, idx) => {
+                            const status = step.status || 'pending';
+                            return (
+                                <div key={idx} className={`step step-${status}`}>
+                                    <div className="step-indicator" />
+                                    <div className="step-label">
+                                        {idx + 1}. {step.description || step.title || `Step ${idx + 1}`}
+                                    </div>
+                                    {status === 'done' && <div className="step-status">(Done)</div>}
+                                    {status === 'running' && <div className="step-status">(Active)</div>}
+                                    {status === 'pending' && <div className="step-status">(Pending)</div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            ) : (
+                <div className="progress-card">
+                    <div className="progress-card-title">PROGRESS STEPS</div>
+                    <div className="progress-steps">
+                        <div className="step step-done">
+                            <div className="step-indicator" />
+                            <div className="step-label">1. Data Collection & Indexing</div>
+                            <div className="step-status">(70%)</div>
+                        </div>
+                        <div className="step step-running">
+                            <div className="step-indicator" />
+                            <div className="step-label">2. Analysis & Chunking Levels</div>
+                            <div className="step-status">(25%, 1.3 tokens buffering/sec)</div>
+                        </div>
+                        <div className="step step-pending">
+                            <div className="step-indicator" />
+                            <div className="step-label">3. Accept to Reconstruction & Feedback & Support</div>
                         </div>
                     </div>
                 </div>

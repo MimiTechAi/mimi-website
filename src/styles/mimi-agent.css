@@ -3766,3 +3766,18 @@ kbd {
         display: none;
     }
 }
+
+/* Adjust panel-left content to account for icon rail */
+.panel-left .logo-row {
+    padding-left: 52px;
+}
+
+.panel-left .tasks-list {
+    padding-left: 46px;
+    padding-right: 8px;
+}
+
+.panel-left .sidebar-bottom {
+    padding-left: 46px;
+    padding-right: 12px;
+}
