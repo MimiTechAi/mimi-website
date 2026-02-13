@@ -31,8 +31,10 @@ function hasAnalyticsConsent(): boolean {
   }
 }
 
+// Get GA ID at build time (replaced by Next.js)
+const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID
+
 export function GoogleAnalytics() {
-  const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID
   const [hasConsent, setHasConsent] = useState(false)
 
   useEffect(() => {
