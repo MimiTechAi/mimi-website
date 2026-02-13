@@ -16,7 +16,7 @@
  */
 
 import { getVectorStore } from './vector-store';
-import { getAgentEventBus, AgentEvents } from './agent-events';
+import { getAgentEventBus } from './agent-events';
 import type { SpecialistAgent, TaskClassification } from './agent-orchestrator';
 import type { AgentSkill, SkillMatch } from './skills';
 import type { ChatMessage } from './inference-engine';
@@ -395,20 +395,18 @@ export class MixtureOfAgentsOrchestrator {
         const startTime = Date.now();
         const agentsInvolved: string[] = [];
 
-        this.eventBus.emit(AgentEvents.TASK_STARTED, {
-            taskId,
-            description: taskDescription
-        });
+        // Emit plan start event
+        this.eventBus.emit('PLAN_START', { planId: taskId, title: taskDescription, goal: taskDescription, stepCount: 0 }, undefined, taskId);
 
         // Step 1: Decompose task into subtasks
-        this.eventBus.emit(AgentEvents.STATUS_CHANGED, { status: 'planning' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'planning' });
         const subtasks = await this.decomposeTask(taskDescription, context);
 
         // Step 2: Route each subtask to best specialist
         const assignments = await this.routeSubtasks(subtasks);
 
         // Step 3: Execute subtasks (parallel where possible)
-        this.eventBus.emit(AgentEvents.STATUS_CHANGED, { status: 'executing' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'executing' });
         const results = await this.executeSubtasks(assignments, context);
 
         // Track agents
@@ -419,7 +417,7 @@ export class MixtureOfAgentsOrchestrator {
         }
 
         // Step 4: Verify results via cross-checking
-        this.eventBus.emit(AgentEvents.STATUS_CHANGED, { status: 'verifying' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'verifying' });
         const verifications = await this.pool.verifier.verifyAll(results);
 
         // Step 5: Conduct consensus voting if needed
@@ -427,16 +425,15 @@ export class MixtureOfAgentsOrchestrator {
         // (Consensus voting would be added here for ambiguous decisions)
 
         // Step 6: Synthesize final answer
-        this.eventBus.emit(AgentEvents.STATUS_CHANGED, { status: 'synthesizing' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'synthesizing' });
         const finalAnswer = await this.pool.orchestrator.synthesize(results, verifications);
 
         const totalDuration = Date.now() - startTime;
 
-        this.eventBus.emit(AgentEvents.TASK_COMPLETED, {
-            taskId,
-            duration: totalDuration,
-            agentsUsed: agentsInvolved.length
-        });
+        // Emit plan complete event
+        const stepsCompleted = results.filter(r => r.success).length;
+        const stepsFailed = results.filter(r => !r.success).length;
+        this.eventBus.emit('PLAN_COMPLETE', { planId: taskId, totalDuration, stepsCompleted, stepsFailed }, undefined, taskId);
 
         return {
             taskId,
@@ -615,11 +612,7 @@ export class MixtureOfAgentsOrchestrator {
         const startTime = Date.now();
         const { subtask, primaryAgent, fallbackAgents } = assignment;
 
-        this.eventBus.emit(AgentEvents.AGENT_SELECTED, {
-            agentId: primaryAgent.id,
-            agentName: primaryAgent.name,
-            subtaskId: subtask.id
-        });
+        // Note: Agent selected (would emit custom event if needed, currently using planStepAdd)
 
         try {
             // Simulate agent execution

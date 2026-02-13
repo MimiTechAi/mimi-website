@@ -16,7 +16,8 @@
       "Bash(npx tsc:*)",
       "Bash(git -C /Users/sanji/Desktop/mimi-website/.claude/worktrees/practical-matsumoto add -A)",
       "Bash(git -C /Users/sanji/Desktop/mimi-website/.claude/worktrees/practical-matsumoto commit -m \"$\\(cat <<''EOF''\nsecurity: enhance authentication guards and add production safety checks\n\n- Added strict production mode checks for demo authentication\n- Improved error messages and security warnings\n- Added NEXTAUTH_SECRET validation with fail-fast in production\n- Fixed TypeScript type safety in tool registry\n- Installed DOMPurify for HTML sanitization \\(preparation\\)\n- All CRITICAL security vulnerabilities from audit are now addressed\n\nSecurity improvements:\n- Auth bypass prevention with production guards\n- Enhanced logging for demo mode usage\n- Type-safe tool handler resolution\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(npx jest:*)"
     ]
   }
 }

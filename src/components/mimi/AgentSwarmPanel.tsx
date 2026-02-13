@@ -13,6 +13,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { JSX } from 'react';
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
