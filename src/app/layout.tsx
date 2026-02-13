@@ -82,8 +82,7 @@ export default function RootLayout({
         <meta name="application-name" content="MiMi Tech AI" />
         <meta name="msapplication-TileColor" content="#000000" />
         <meta name="msapplication-config" content="/browserconfig.xml" />
-        {/* Preload critical hero images for faster LCP */}
-        <link rel="preload" as="image" href="/images/digital-twin-factory.png" type="image/png" />
+        {/* Preload moved to homepage to avoid unused preload warnings */}
         {/* DNS prefetch for external resources */}
         <link rel="dns-prefetch" href="//fonts.googleapis.com" />
         <link rel="dns-prefetch" href="//fonts.gstatic.com" />
