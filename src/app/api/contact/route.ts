@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/** HTML-encode a string to prevent injection in email templates */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -23,7 +33,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Email sending would be implemented here with a service like SendGrid, AWS SES, or Resend
+    // Enforce max lengths to prevent abuse
+    if (name.length > 200 || email.length > 254 || message.length > 5000 || service.length > 200) {
+      return NextResponse.json(
+        { error: "Ein oder mehrere Felder überschreiten die maximale Länge." },
+        { status: 400 }
+      );
+    }
+
     if (process.env.NODE_ENV === "development") {
       console.log("Contact form submission:", {
         name,
@@ -35,33 +52,6 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
       });
     }
-
-    // In production, you would:
-    // 1. Send email via service like SendGrid, AWS SES, Resend, etc.
-    // 2. Store in database for record-keeping
-    // 3. Send confirmation email to user
-
-    // Example with Resend (uncomment when configured):
-    /*
-    import { Resend } from 'resend';
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    
-    await resend.emails.send({
-      from: 'kontakt@mimitech.ai',
-      to: 'info@mimitech.ai',
-      subject: `Neue Kontaktanfrage von ${name}`,
-      html: `
-        <h2>Neue Kontaktanfrage</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>E-Mail:</strong> ${email}</p>
-        <p><strong>Unternehmen:</strong> ${body.company || 'Nicht angegeben'}</p>
-        <p><strong>Telefon:</strong> ${body.phone || 'Nicht angegeben'}</p>
-        <p><strong>Interessiert an:</strong> ${service}</p>
-        <p><strong>Nachricht:</strong></p>
-        <p>${message}</p>
-      `,
-    });
-    */
 
     // Real implementation using Resend HTTP API via fetch
     const env = (value?: string) => (typeof value === "string" ? value.trim() : undefined);
@@ -79,15 +69,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // HTML-encode all user inputs to prevent email HTML injection
+    const safeName = escapeHtml(String(name));
+    const safeEmail = escapeHtml(String(email));
+    const safeCompany = escapeHtml(String(body.company || "Nicht angegeben"));
+    const safePhone = escapeHtml(String(body.phone || "Nicht angegeben"));
+    const safeService = escapeHtml(String(service));
+    const safeMessage = escapeHtml(String(message));
+
     const emailHtml = `
       <h2>Neue Kontaktanfrage</h2>
-      <p><strong>Name:</strong> ${name}</p>
-      <p><strong>E-Mail:</strong> ${email}</p>
-      <p><strong>Unternehmen:</strong> ${body.company || "Nicht angegeben"}</p>
-      <p><strong>Telefon:</strong> ${body.phone || "Nicht angegeben"}</p>
-      <p><strong>Interessiert an:</strong> ${service}</p>
+      <p><strong>Name:</strong> ${safeName}</p>
+      <p><strong>E-Mail:</strong> ${safeEmail}</p>
+      <p><strong>Unternehmen:</strong> ${safeCompany}</p>
+      <p><strong>Telefon:</strong> ${safePhone}</p>
+      <p><strong>Interessiert an:</strong> ${safeService}</p>
       <p><strong>Nachricht:</strong></p>
-      <p>${message}</p>
+      <p>${safeMessage}</p>
     `;
 
     const sendResendEmail = async (from: string) => {
@@ -101,7 +99,7 @@ export async function POST(request: NextRequest) {
           from,
           to: [CONTACT_TO_EMAIL],
           reply_to: typeof email === "string" ? email.trim() : email,
-          subject: `Neue Kontaktanfrage von ${name}`,
+          subject: `Neue Kontaktanfrage von ${safeName}`,
           html: emailHtml,
         }),
       });
@@ -131,9 +129,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "Die E-Mail konnte nicht versendet werden. Bitte versuchen Sie es später erneut.",
-          resendStatus: resendResponse.status,
-          resendError: errorText,
-          resendFromTried: fromTried,
         },
         { status: 500 }
       );

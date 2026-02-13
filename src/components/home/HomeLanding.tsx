@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import OptimizedImage from "@/components/OptimizedImage";
 import { PrimaryButtonLink } from "@/components/ui/PrimaryButtonLink";
 import Image from "next/image";
-import React, { useRef } from "react";
+import React, { useRef, memo } from "react";
 import { motion, useInView, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, Shield, Brain, FileText, Sparkles } from "lucide-react";
 import { useReducedMotion } from "@/lib/hooks/use-reduced-motion";
@@ -589,7 +589,7 @@ interface ServiceCardProps {
   imageAlt?: string;
 }
 
-function ServiceCard({ title, description, href, imageSrc, imageAlt }: ServiceCardProps) {
+const ServiceCard = memo(function ServiceCard({ title, description, href, imageSrc, imageAlt }: ServiceCardProps) {
   return (
     <motion.div
       variants={{
@@ -641,9 +641,9 @@ function ServiceCard({ title, description, href, imageSrc, imageAlt }: ServiceCa
       </Link>
     </motion.div>
   );
-}
+});
 
-function TechFeature({ text }: { text: string }) {
+const TechFeature = memo(function TechFeature({ text }: { text: string }) {
   return (
     <li className="flex items-center gap-3">
       <div className="w-6 h-6 rounded-full bg-brand-cyan/20 border border-brand-cyan flex items-center justify-center flex-shrink-0">
@@ -652,7 +652,7 @@ function TechFeature({ text }: { text: string }) {
       <span className="text-text-primary">{text}</span>
     </li>
   );
-}
+});
 
 interface MimiFeatureCardProps {
   icon: React.ReactNode;
@@ -660,7 +660,7 @@ interface MimiFeatureCardProps {
   description: string;
 }
 
-function MimiFeatureCard({ icon, title, description }: MimiFeatureCardProps) {
+const MimiFeatureCard = memo(function MimiFeatureCard({ icon, title, description }: MimiFeatureCardProps) {
   return (
     <motion.div
       variants={{
@@ -680,5 +680,5 @@ function MimiFeatureCard({ icon, title, description }: MimiFeatureCardProps) {
       <p className="text-text-secondary text-sm leading-relaxed">{description}</p>
     </motion.div>
   );
-}
+});
 

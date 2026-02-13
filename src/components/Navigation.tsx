@@ -88,6 +88,7 @@ const NavigationLink = ({ href, children, highlight }: { href: string; children:
   return (
     <Link
       href={href}
+      aria-current={isActive(href) ? "page" : undefined}
       className={`px-4 py-3 rounded-md text-sm font-medium transition-all duration-300 relative group nav-touch-target ${isActive(href)
           ? "text-brand-cyan font-semibold"
           : highlight
@@ -131,12 +132,17 @@ const DesktopDropdown = ({ entry }: { entry: NavDropdownItem }) => {
     timeoutRef.current = setTimeout(() => setIsOpen(false), 150);
   };
 
+  const menuId = `dropdown-menu-${entry.label.toLowerCase().replace(/\s+/g, '-')}`;
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       setIsOpen(!isOpen);
     } else if (e.key === "Escape") {
       setIsOpen(false);
+    } else if (e.key === "ArrowDown" && !isOpen) {
+      e.preventDefault();
+      setIsOpen(true);
     }
   };
 
@@ -154,6 +160,7 @@ const DesktopDropdown = ({ entry }: { entry: NavDropdownItem }) => {
           }`}
         aria-expanded={isOpen}
         aria-haspopup="true"
+        aria-controls={menuId}
         onKeyDown={handleKeyDown}
       >
         {entry.label}
@@ -179,6 +186,7 @@ const DesktopDropdown = ({ entry }: { entry: NavDropdownItem }) => {
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-[520px] rounded-xl glass-premium p-5 shadow-2xl shadow-black/40"
+            id={menuId}
             role="menu"
             aria-label={`${entry.label} Untermenü`}
           >
@@ -233,14 +241,13 @@ export default function Navigation() {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
     };
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   return (
     <nav
       id="navigation"
-      role="navigation"
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled
           ? "bg-black/20 backdrop-blur-xl border-b border-white/10 shadow-lg"
           : "bg-transparent border-b border-transparent"
@@ -311,13 +318,11 @@ export default function Navigation() {
           <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <SheetTrigger asChild>
               <button
-                role="button"
                 data-testid="mobile-menu-button"
                 className="md:hidden p-2 text-white hover:text-brand-cyan transition-colors rounded-lg hover:bg-white/5"
                 aria-label={isMenuOpen ? "Menü schließen" : "Menü öffnen"}
                 aria-expanded={isMenuOpen}
                 aria-controls="mobile-menu"
-                tabIndex={0}
               >
                 {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
               </button>

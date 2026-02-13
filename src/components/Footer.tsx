@@ -95,7 +95,7 @@ export default function Footer() {
               <p className="text-sm text-gray-300 mb-4">
                 Bleiben Sie auf dem Laufenden über KI-Trends und unsere neuesten Projekte.
               </p>
-              <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
+              <form onSubmit={handleNewsletterSubmit} aria-label="Newsletter-Anmeldung" className="flex gap-2">
                 <label htmlFor="newsletter-email" className="sr-only">E-Mail-Adresse für Newsletter</label>
                 <input
                   id="newsletter-email"
@@ -108,6 +108,7 @@ export default function Footer() {
                   placeholder="Ihre E-Mail-Adresse"
                   required
                   disabled={isSubmitting}
+                  aria-invalid={!isValid}
                   className={`flex-1 px-4 py-2.5 bg-white/5 border rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan/50 focus-visible:border-brand-cyan/50 text-white placeholder:text-gray-500 text-sm transition-all ${isValid ? "border-white/10" : "border-red-500/50"
                     }`}
                 />
@@ -118,9 +119,9 @@ export default function Footer() {
                   aria-label="Newsletter abonnieren"
                 >
                   {isSubmitting ? (
-                    <div className="w-4 h-4 border-2 border-brand-cyan/30 border-t-brand-cyan rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-brand-cyan/30 border-t-brand-cyan rounded-full animate-spin" role="status" aria-label="Wird gesendet" />
                   ) : (
-                    <Send size={18} />
+                    <Send size={18} aria-hidden="true" />
                   )}
                 </button>
               </form>
@@ -150,7 +151,7 @@ export default function Footer() {
           </div>
 
           {/* Quick Links */}
-          <div>
+          <nav aria-label="Quick Links">
             <h3 className="font-semibold text-white mb-6">Quick Links</h3>
             <ul className="space-y-3">
               {[
@@ -171,7 +172,7 @@ export default function Footer() {
                 </li>
               ))}
             </ul>
-          </div>
+          </nav>
 
           {/* Contact Info */}
           <div>

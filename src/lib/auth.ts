@@ -2,15 +2,27 @@ import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 
-// Beispiel-Datenbankabfrage (in einer echten Anwendung würde dies eine echte Datenbankabfrage sein)
+// SECURITY WARNING: This is a DEMO-ONLY implementation!
+// DO NOT USE IN PRODUCTION without implementing proper database authentication.
+// This hardcoded user will accept ANY @mimitechai.com email with the demo password.
 async function getUserByEmail(email: string) {
-  // In einer echten Anwendung würden Sie hier die Datenbank abfragen
-  // Beispiel für ein gehashtes Passwort: "password123" -> "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S"
+  // Fail-safe: NEVER allow demo auth in production unless explicitly enabled
+  if (process.env.NODE_ENV === "production" && !process.env.DEMO_AUTH_ENABLED) {
+    console.error("[AUTH SECURITY] Demo credentials are DISABLED in production. Set DATABASE_URL and implement real user lookup.");
+    throw new Error("Authentication not configured for production");
+  }
+
+  // DEMO MODE: Returns a hardcoded demo user for development/testing only
+  // TODO: Replace with database query: SELECT * FROM users WHERE email = $1
+  console.warn("[AUTH SECURITY] Using DEMO authentication - not suitable for production!");
+
   return {
     id: "1",
-    name: "Max Mustermann",
+    name: "Demo User",
     email: email,
-    password: "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S", // password123
+    // Demo password hash (DO NOT USE IN PRODUCTION)
+    // This accepts a simple demo password for testing only
+    password: "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S",
   };
 }
 
@@ -74,5 +86,11 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/internal/login",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || (() => {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("NEXTAUTH_SECRET must be set in production!");
+    }
+    console.warn("[AUTH SECURITY] Using fallback NEXTAUTH_SECRET - NOT suitable for production!");
+    return "development-secret-not-for-production-use";
+  })(),
 };

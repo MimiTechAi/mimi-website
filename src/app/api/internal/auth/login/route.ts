@@ -3,15 +3,18 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { compare } from "bcryptjs";
 
-// Beispiel-Datenbankabfrage (in einer echten Anwendung würde dies eine echte Datenbankabfrage sein)
+// SECURITY: Demo-only user lookup. Replace with real database query before production.
 async function getUserByEmail(email: string) {
-  // In einer echten Anwendung würden Sie hier die Datenbank abfragen
-  // Beispiel für ein gehashtes Passwort: "password123" -> "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S"
+  if (process.env.NODE_ENV === "production" && !process.env.DEMO_AUTH_ENABLED) {
+    console.error("[AUTH] Demo credentials disabled in production.");
+    return null;
+  }
+
   return {
     id: "1",
-    name: "Max Mustermann",
+    name: "Demo User",
     email: email,
-    password: "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S", // password123
+    password: "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S",
   };
 }
 
@@ -65,28 +68,19 @@ export async function POST(request: Request) {
       }, { status: 401 });
     }
 
-    // Beispielantwort (nur für Demonstrationszwecke)
-    if (email && password) {
-      // In einer echten Anwendung würden Sie hier ein echtes JWT generieren
-      const token = "demo-jwt-token";
-      
-      return NextResponse.json({
-        success: true,
-        message: "Anmeldung erfolgreich",
-        token: token,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: "employee"
-        }
-      });
-    } else {
-      return NextResponse.json({
-        success: false,
-        message: "Ungültige Anmeldedaten"
-      }, { status: 401 });
-    }
+    // Return success with user info (session management handled by NextAuth)
+    // NOTE: Use NextAuth's signIn() on the client side for proper session creation.
+    // This endpoint validates credentials only; it does NOT issue tokens.
+    return NextResponse.json({
+      success: true,
+      message: "Anmeldung erfolgreich",
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: "employee"
+      }
+    });
   } catch (error) {
     return NextResponse.json({
       success: false,

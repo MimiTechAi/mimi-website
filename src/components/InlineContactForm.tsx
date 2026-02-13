@@ -380,7 +380,7 @@ export default function InlineContactForm({
         </div>
 
         {submitStatus === "error" && (
-          <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
+          <div role="alert" className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
             Ein Fehler ist aufgetreten. Bitte versuchen Sie es später erneut oder kontaktieren Sie uns direkt.
           </div>
         )}

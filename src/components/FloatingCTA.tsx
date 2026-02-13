@@ -2,15 +2,26 @@
 
 import { MessageSquare, Phone, X } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/lib/hooks/use-mobile"; // Import mobile detection hook
 import { useReducedMotion } from "@/lib/hooks/use-reduced-motion";
 
 export default function FloatingCTA() {
   const [isExpanded, setIsExpanded] = useState(false);
-  const isMobile = useIsMobile(); // Detect if user is on mobile
+  const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isExpanded) {
+        setIsExpanded(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isExpanded]);
 
   return (
     <>
@@ -32,19 +43,21 @@ export default function FloatingCTA() {
               {/* Contact Option - Increased touch target */}
               <Link
                 href="/contact"
-                className="flex items-center gap-3 bg-card border border-border rounded-full px-4 py-4 shadow-lg hover:shadow-xl transition-shadow min-h-[44px] min-w-[44px]" // Increased touch target
+                aria-label="Nachricht senden - Kontaktformular öffnen"
+                className="flex items-center gap-3 bg-card border border-border rounded-full px-4 py-4 shadow-lg hover:shadow-xl transition-shadow min-h-[44px] min-w-[44px]"
                 onClick={() => setIsExpanded(false)}
               >
-                <MessageSquare className="w-5 h-5 text-primary" />
+                <MessageSquare className="w-5 h-5 text-primary" aria-hidden="true" />
                 <span className="text-sm font-medium whitespace-nowrap">
                   Nachricht senden
                 </span>
               </Link>
 
-              {/* Phone Option - Increased touch target */}
+              {/* Phone Option */}
               <a
                 href="tel:+4915758805737"
-                className="flex items-center gap-3 bg-card border border-border rounded-full px-4 py-4 shadow-lg hover:shadow-xl transition-shadow min-h-[44px] min-w-[44px]" // Increased touch target
+                aria-label="Jetzt anrufen: +49 1575 8805737"
+                className="flex items-center gap-3 bg-card border border-border rounded-full px-4 py-4 shadow-lg hover:shadow-xl transition-shadow min-h-[44px] min-w-[44px]"
                 onClick={() => setIsExpanded(false)}
               >
                 <Phone className="w-5 h-5 text-primary" />

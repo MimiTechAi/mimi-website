@@ -58,3 +58,6 @@ bun.lock
 
 # broken git backups
 .git-broken/
+
+# Claude AI agent workspace (should only be in root, not in worktrees)
+.claude/

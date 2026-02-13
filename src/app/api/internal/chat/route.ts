@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
-// In-Memory-Speicher für Chat-Nachrichten (in einer echten Anwendung würde dies eine Datenbank sein)
+// In-Memory-Speicher für Chat-Nachrichten (replace with database in production)
+const MAX_MESSAGES = 500;
+const MAX_CONNECTED_CLIENTS = 100;
 let messages: any[] = [
   { 
     id: 1, 
@@ -97,8 +99,11 @@ export async function POST(request: Request) {
         fileSize: fileSize
       };
 
-      // Nachricht zur Liste hinzufügen
+      // Nachricht zur Liste hinzufügen (enforce size limit to prevent memory exhaustion)
       messages.push(newMessage);
+      if (messages.length > MAX_MESSAGES) {
+        messages = messages.slice(-MAX_MESSAGES);
+      }
 
       // In einer echten Anwendung würden Sie hier die Nachricht an alle verbundenen Clients senden
       // Für dieses Beispiel simulieren wir es mit einem einfachen Mechanismus
@@ -149,6 +154,13 @@ export async function PUT(request: Request) {
     const { clientId } = body;
 
     if (clientId) {
+      // Enforce client limit to prevent memory exhaustion
+      if (connectedClients.length >= MAX_CONNECTED_CLIENTS) {
+        return NextResponse.json({
+          success: false,
+          message: "Maximale Anzahl verbundener Clients erreicht"
+        }, { status: 429 });
+      }
       // Client zur Liste der verbundenen Clients hinzufügen
       connectedClients.push({ id: clientId });
       

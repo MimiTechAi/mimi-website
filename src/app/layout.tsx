@@ -100,7 +100,7 @@ export default function RootLayout({
         <GoogleAnalytics />
         <Analytics />
         {/* Main Content Wrapper with ID for Skip Link */}
-        <main id="main-content" role="main" className="relative">
+        <main id="main-content" className="relative">
           {children}
         </main>
         <LayoutOverlays />

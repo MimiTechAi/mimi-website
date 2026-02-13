@@ -81,17 +81,18 @@ export default function NeuralBackground() {
                 p.update();
                 p.draw();
 
-                // Draw connections
+                // Draw connections (squared distance avoids sqrt per pair)
+                const connDistSq = connectionDistance * connectionDistance;
                 for (let j = index + 1; j < particles.length; j++) {
                     const p2 = particles[j];
                     const dx = p.x - p2.x;
                     const dy = p.y - p2.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const distSq = dx * dx + dy * dy;
 
-                    if (distance < connectionDistance) {
-                        ctx.beginPath();
-                        // Opacity based on distance
+                    if (distSq < connDistSq) {
+                        const distance = Math.sqrt(distSq);
                         const opacity = (1 - distance / connectionDistance) * 0.2;
+                        ctx.beginPath();
                         ctx.strokeStyle = `rgba(0, 230, 255, ${opacity})`;
                         ctx.lineWidth = 0.5;
                         ctx.moveTo(p.x, p.y);

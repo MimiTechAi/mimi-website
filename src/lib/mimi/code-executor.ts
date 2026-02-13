@@ -279,7 +279,8 @@ export async function executePython(code: string): Promise<CodeExecutionResult> 
 
     try {
         // Detect matplotlib usage and load if needed
-        if (codeToRun.includes('matplotlib') || codeToRun.includes('plt.')) {
+        const usesMpl = codeToRun.includes('matplotlib') || codeToRun.includes('plt.');
+        if (usesMpl) {
             try {
                 await pyodide.loadPackage(['matplotlib']);
             } catch {
@@ -287,9 +288,14 @@ export async function executePython(code: string): Promise<CodeExecutionResult> 
             }
         }
 
+        // Pass user code via base64 to avoid string interpolation injection
+        const codeBase64 = btoa(unescape(encodeURIComponent(codeToRun)));
+        const usesMplFlag = usesMpl ? 'True' : 'False';
+
         // Capture stdout and handle matplotlib
         const wrappedCode = `
 import sys
+import base64
 from io import StringIO
 
 _stdout_capture = StringIO()
@@ -297,20 +303,17 @@ _old_stdout = sys.stdout
 sys.stdout = _stdout_capture
 
 _chart_data = None
+_user_code = base64.b64decode("${codeBase64}").decode("utf-8")
 
 try:
-    # Check for matplotlib
-    if 'matplotlib' in """${codeToRun}""" or 'plt.' in """${codeToRun}""":
+    if ${usesMplFlag}:
         import matplotlib
-        matplotlib.use('Agg')  # Non-interactive backend
+        matplotlib.use('Agg')
         import matplotlib.pyplot as plt
-        import base64
         from io import BytesIO
-        
-        # Execute code
-        exec("""${escapeForPython(codeToRun)}""")
-        
-        # Capture chart if any
+
+        exec(_user_code)
+
         fig = plt.gcf()
         if fig.get_axes():
             buf = BytesIO()
@@ -319,7 +322,7 @@ try:
             _chart_data = base64.b64encode(buf.read()).decode('utf-8')
             plt.close(fig)
     else:
-        exec("""${escapeForPython(codeToRun)}""")
+        exec(_user_code)
 except Exception as e:
     print(f"Error: {e}")
 finally:
@@ -367,11 +370,16 @@ _output = _stdout_capture.getvalue()
  * Berechnet mathematische Ausdrücke sicher
  */
 export async function calculate(expression: string): Promise<CodeExecutionResult> {
+    // Sanitize: only allow math-safe characters to prevent code injection
+    const sanitized = expression.replace(/[^0-9+\-*/().,%^ a-zA-Z_]/g, '');
+    if (sanitized.length === 0 || sanitized !== expression.replace(/\s+/g, ' ').trim().replace(/[^0-9+\-*/().,%^ a-zA-Z_]/g, '')) {
+        return { success: false, output: '', error: 'Ungültiger Ausdruck', executionTime: 0 };
+    }
     const code = `
 import math
 import numpy as np
 
-result = ${expression}
+result = ${sanitized}
 print(result)
 `;
     return executePython(code);
@@ -389,20 +397,6 @@ export function isPyodideReady(): boolean {
  */
 export function isPyodideLoading(): boolean {
     return isLoading;
-}
-
-/**
- * Escape String für Python exec()
- * WICHTIG: Newlines müssen für Python-Syntax erhalten bleiben!
- * Wir escapen nur Zeichen die innerhalb von triple-quoted strings problematisch sind.
- */
-function escapeForPython(code: string): string {
-    // Nur backslashes und triple-quotes escapen
-    // Newlines NICHT escapen - Python braucht sie!
-    return code
-        .replace(/\\/g, '\\\\')           // Backslash → \\
-        .replace(/"""/g, '\\"\\"\\"');     // """ → \"\"\"
-    // KEINE Newline-Ersetzung! Python exec() braucht echte Zeilenumbrüche
 }
 
 /**

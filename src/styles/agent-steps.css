@@ -340,11 +340,41 @@
 }
 
 .thinking-bar-active {
-    border-color: rgba(130, 60, 255, 0.18);
+    border-color: rgba(0, 212, 255, 0.25);
+    box-shadow:
+        0 0 20px rgba(0, 212, 255, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    animation: thinkingPulse 2s ease-in-out infinite;
+}
+
+@keyframes thinkingPulse {
+    0%, 100% {
+        box-shadow:
+            0 0 20px rgba(0, 212, 255, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    50% {
+        box-shadow:
+            0 0 40px rgba(0, 212, 255, 0.3),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
 }
 
 .thinking-bar-complete {
     border-color: rgba(34, 197, 94, 0.2);
+    animation: successFlash 0.6s ease-out;
+}
+
+@keyframes successFlash {
+    0% {
+        background: rgba(34, 197, 94, 0);
+    }
+    50% {
+        background: rgba(34, 197, 94, 0.15);
+    }
+    100% {
+        background: rgba(15, 15, 25, 0.7);
+    }
 }
 
 .thinking-bar-main {
@@ -370,8 +400,18 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #a855f7;
-    filter: drop-shadow(0 0 4px rgba(130, 60, 255, 0.4));
+    color: #00d4ff;
+    filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.6));
+    animation: iconRotate 2s ease-in-out infinite;
+}
+
+@keyframes iconRotate {
+    0%, 100% {
+        transform: rotate(0deg) scale(1);
+    }
+    50% {
+        transform: rotate(180deg) scale(1.1);
+    }
 }
 
 .thinking-bar-icon-static {
@@ -449,9 +489,10 @@
     height: 2px;
     background: linear-gradient(90deg,
             transparent,
-            #a855f7,
-            #7c3aed,
-            #00c8ff,
+            #00d4ff,
+            #3b82f6,
+            #06b6d4,
+            #00d4ff,
             transparent);
     background-size: 300% 100%;
     animation: glow-slide 2.5s linear infinite;

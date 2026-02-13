@@ -91,6 +91,7 @@ export default function InteractiveDemo() {
                     : "bg-white/5 border-white/10 text-gray-500 hover:border-white/30"
                   }`}
                 aria-label={`Schritt ${index + 1}: ${step.title}`}
+                aria-current={index === currentStep ? "step" : undefined}
               >
                 <span className="font-bold">{index + 1}</span>
               </button>
@@ -102,7 +103,13 @@ export default function InteractiveDemo() {
         </div>
 
         {/* Demo visualization */}
-        <div className="relative min-h-[240px] md:min-h-[300px] rounded-2xl bg-black/40 border border-white/10 overflow-hidden">
+        <div
+          className="relative min-h-[240px] md:min-h-[300px] rounded-2xl bg-black/40 border border-white/10 overflow-hidden"
+          aria-live="polite"
+          aria-atomic="true"
+          role="region"
+          aria-label={`Schritt ${currentStep + 1} von ${demoSteps.length}: ${demoSteps[currentStep].title}`}
+        >
           <div className="absolute inset-0 bg-gradient-to-br from-brand-cyan/5 to-nvidia-green/5" />
 
           <AnimatePresence mode="wait">
