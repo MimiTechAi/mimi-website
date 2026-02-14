@@ -147,7 +147,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: blob: https://slelguoygbfzlpylpxfs.supabase.co https://www.google-analytics.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com https://raw.githubusercontent.com",
+              "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://cas-bridge.xethub.hf.co https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com https://raw.githubusercontent.com",
               "worker-src 'self' blob:",
               "child-src 'self' blob:",
               "frame-src 'self'",
