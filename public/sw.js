@@ -101,7 +101,7 @@ self.addEventListener('fetch', (event) => {
                         caches.open(STATIC_CACHE).then((cache) => {
                             cache.put(request, response);
                         });
-                    });
+                    }).catch(() => { /* background revalidation failed silently */ });
                     return cachedResponse;
                 }
 
@@ -111,6 +111,9 @@ self.addEventListener('fetch', (event) => {
                         cache.put(request, clonedResponse);
                     });
                     return response;
+                }).catch(() => {
+                    // Offline fallback for static assets
+                    return new Response('', { status: 408, statusText: 'Offline' });
                 });
             })
         );
@@ -118,7 +121,11 @@ self.addEventListener('fetch', (event) => {
     }
 
     // Alle anderen Requests - Network only
-    event.respondWith(fetch(request));
+    event.respondWith(
+        fetch(request).catch(() => {
+            return new Response('', { status: 408, statusText: 'Offline' });
+        })
+    );
 });
 
 // Message Handler für manuelle Cache-Kontrolle

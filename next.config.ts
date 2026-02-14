@@ -131,7 +131,7 @@ const nextConfig = {
         headers: [
           // Cross-Origin Isolation für SharedArrayBuffer
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
           // Security Headers
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
@@ -147,7 +147,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: blob: https://slelguoygbfzlpylpxfs.supabase.co https://www.google-analytics.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com",
+              "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com https://raw.githubusercontent.com",
               "worker-src 'self' blob:",
               "child-src 'self' blob:",
               "frame-src 'self'",
