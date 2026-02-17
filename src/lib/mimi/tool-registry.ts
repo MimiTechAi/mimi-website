@@ -63,7 +63,7 @@ const handleCalculate: ToolHandler = async (params) => {
             return { success: false, output: `Result is not computable: ${result}` };
         }
         return { success: true, output: `${expression} = ${result}`, data: result };
-    } catch (e) {
+    } catch (e: unknown) {
         return { success: false, output: `Calculation error: ${e instanceof Error ? e.message : String(e)}` };
     }
 };
@@ -75,7 +75,7 @@ const handleExecutePython: ToolHandler = async (params, ctx) => {
     try {
         const result = await ctx.executePython(params.code as string);
         return { success: true, output: result };
-    } catch (e) {
+    } catch (e: unknown) {
         return { success: false, output: `Python error: ${e}` };
     }
 };
@@ -98,7 +98,7 @@ const handleSearchDocuments: ToolHandler = async (params, ctx) => {
                 : 'No results found.',
             data: results
         };
-    } catch (e) {
+    } catch (e: unknown) {
         return { success: false, output: `Search failed: ${e}` };
     }
 };
@@ -114,7 +114,7 @@ const handleAnalyzeImage: ToolHandler = async (params, ctx) => {
             output: typeof result === 'string' ? result : JSON.stringify(result),
             data: result
         };
-    } catch (e) {
+    } catch (e: unknown) {
         return { success: false, output: `Image analysis failed: ${e}` };
     }
 };
@@ -133,7 +133,7 @@ const handleCreateFile: ToolHandler = async (params, ctx) => {
             success: true,
             output: `File "${params.filename || 'download'}.${params.type}" created!`
         };
-    } catch (e) {
+    } catch (e: unknown) {
         return { success: false, output: `File creation failed: ${e}` };
     }
 };

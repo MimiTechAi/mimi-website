@@ -20,12 +20,21 @@
 // TYPES
 // ═══════════════════════════════════════════════════════════
 
+/** B-04: Discriminated union for type-safe metadata access */
+export type MemoryMetadata =
+    | { type: 'task_summary'; title: string; stepCount: number; duration: number; completedAt: number }
+    | { type: 'user_preference'; key: string; value: string }
+    | { type: 'tool_cache'; cacheKey: string; toolName: string; paramsHash?: string }
+    | { type: 'context_snapshot'; windowId: string;[k: string]: unknown }
+    | { type: 'learned_fact';[k: string]: unknown }
+    | { type: 'generic';[k: string]: unknown };
+
 export interface MemoryEntry {
     id: string;
     type: 'task_summary' | 'user_preference' | 'tool_cache' | 'context_snapshot' | 'learned_fact';
     importance: 'critical' | 'useful' | 'ambient';
     content: string;
-    metadata: Record<string, unknown>;
+    metadata: MemoryMetadata;
     createdAt: number;
     accessedAt: number;
     accessCount: number;
@@ -129,7 +138,7 @@ export class AgentMemoryService {
             type: 'task_summary',
             importance: 'useful',
             content: `Task: ${title}\nSteps: ${steps.join(' → ')}\nResult: ${result}\nDuration: ${Math.round(duration / 1000)}s`,
-            metadata: { title, stepCount: steps.length, duration, completedAt: Date.now() },
+            metadata: { type: 'task_summary' as const, title, stepCount: steps.length, duration, completedAt: Date.now() },
         });
     }
 
@@ -139,7 +148,7 @@ export class AgentMemoryService {
     async storePreference(key: string, value: string): Promise<string> {
         // Check for existing preference with same key
         for (const [id, entry] of this.cache) {
-            if (entry.type === 'user_preference' && (entry.metadata as any).key === key) {
+            if (entry.type === 'user_preference' && entry.metadata.type === 'user_preference' && entry.metadata.key === key) {
                 // Update existing
                 entry.content = `${key}: ${value}`;
                 entry.accessedAt = Date.now();
@@ -153,7 +162,7 @@ export class AgentMemoryService {
             type: 'user_preference',
             importance: 'critical',
             content: `${key}: ${value}`,
-            metadata: { key, value },
+            metadata: { type: 'user_preference' as const, key, value },
         });
     }
 
@@ -164,7 +173,7 @@ export class AgentMemoryService {
         const cacheKey = `${toolName}:${params}`;
         // Check for existing cache
         for (const [, entry] of this.cache) {
-            if (entry.type === 'tool_cache' && (entry.metadata as any).cacheKey === cacheKey) {
+            if (entry.type === 'tool_cache' && entry.metadata.type === 'tool_cache' && entry.metadata.cacheKey === cacheKey) {
                 entry.accessedAt = Date.now();
                 entry.accessCount++;
                 await this.persist(entry);
@@ -176,7 +185,7 @@ export class AgentMemoryService {
             type: 'tool_cache',
             importance: 'ambient',
             content: result.slice(0, 1000), // Cap cached results
-            metadata: { toolName, cacheKey },
+            metadata: { type: 'tool_cache' as const, toolName, cacheKey },
             expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24h cache
         });
     }
@@ -189,7 +198,7 @@ export class AgentMemoryService {
             type: 'learned_fact',
             importance: 'useful',
             content: fact,
-            metadata: { source, learnedAt: Date.now() },
+            metadata: { type: 'learned_fact' as const, source, learnedAt: Date.now() },
         });
     }
 
@@ -257,7 +266,7 @@ export class AgentMemoryService {
         const cacheKey = `${toolName}:${params}`;
         for (const [, entry] of this.cache) {
             if (entry.type === 'tool_cache'
-                && (entry.metadata as any).cacheKey === cacheKey
+                && entry.metadata.type === 'tool_cache' && entry.metadata.cacheKey === cacheKey
                 && (!entry.expiresAt || entry.expiresAt > Date.now())) {
                 entry.accessedAt = Date.now();
                 entry.accessCount++;

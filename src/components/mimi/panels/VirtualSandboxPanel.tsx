@@ -4,18 +4,25 @@
  * VirtualSandboxPanel -- Right panel of the Manus 3-panel layout.
  *
  * Displays the agent's virtual sandbox with tabs for browser, terminal,
- * editor, and files. Also shows progress steps.
+ * editor, and files. Also shows progress steps and Claude-style artifact
+ * previews.
  * Consumes MimiAgentContext -- no props needed.
  *
  * © 2026 MIMI Tech AI. All rights reserved.
  */
 
+import { memo } from "react";
 import dynamic from "next/dynamic";
 import { useMimiAgentContext } from "../MimiAgentContext";
+import { ArtifactPanel } from "./ArtifactPanel";
+import { sanitizeHtml } from "../utils/sanitize";
+import {
+    Globe, Terminal, FileCode2, FolderOpen, Copy, Download
+} from "lucide-react";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react").then(mod => mod.default), {
     ssr: false,
-    loading: () => <div style={{ padding: '16px', color: '#64748b', fontSize: '11px' }}>Editor wird geladen...</div>
+    loading: () => <div style={{ padding: '16px', color: '#64748b', fontSize: '0.6875rem' }}>Editor wird geladen...</div>
 });
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -29,13 +36,13 @@ const LANGUAGE_MAP: Record<string, string> = {
 };
 
 const TABS = [
-    { id: "browser" as const, icon: "🌐", label: "Browser" },
-    { id: "terminal" as const, icon: "⌨️", label: "Terminal" },
-    { id: "editor" as const, icon: "📝", label: "Editor" },
-    { id: "files" as const, icon: "📁", label: "Files" },
+    { id: "browser" as const, Icon: Globe, label: "Browser" },
+    { id: "terminal" as const, Icon: Terminal, label: "Terminal" },
+    { id: "editor" as const, Icon: FileCode2, label: "Editor" },
+    { id: "files" as const, Icon: FolderOpen, label: "Dateien" },
 ];
 
-export function VirtualSandboxPanel() {
+export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
     const ctx = useMimiAgentContext();
 
     return (
@@ -49,6 +56,15 @@ export function VirtualSandboxPanel() {
                             Live
                         </span>
                     )}
+                    {ctx.detectedArtifacts.length > 0 && !ctx.activeDetectedArtifact && (
+                        <button
+                            className="artifact-badge"
+                            onClick={() => ctx.openArtifact(ctx.detectedArtifacts[ctx.detectedArtifacts.length - 1])}
+                            title="Letztes Artifact anzeigen"
+                        >
+                            ✨ {ctx.detectedArtifacts.length} Artifact{ctx.detectedArtifacts.length > 1 ? 's' : ''}
+                        </button>
+                    )}
                 </div>
             </div>
             <div className="sandbox-tabs">
@@ -57,15 +73,23 @@ export function VirtualSandboxPanel() {
                         key={tab.id}
                         data-tab={tab.id}
                         className={ctx.activeTab === tab.id ? "active" : ""}
-                        onClick={() => ctx.setActiveTab(tab.id)}
+                        onClick={() => { ctx.setActiveTab(tab.id); ctx.closeArtifact(); }}
                     >
-                        <span className="tab-icon">{tab.icon}</span>
+                        <span className="tab-icon"><tab.Icon className="w-3.5 h-3.5" /></span>
                         {tab.label}
                     </button>
                 ))}
             </div>
 
-            <div className="sandbox-scroll">
+            <div className="sandbox-scroll" style={{ position: 'relative' }}>
+                {/* Claude-style Artifact Panel overlay */}
+                {ctx.activeDetectedArtifact && (
+                    <ArtifactPanel
+                        artifact={ctx.activeDetectedArtifact}
+                        onClose={ctx.closeArtifact}
+                    />
+                )}
+
                 {/* Browser Tab */}
                 {ctx.activeTab === "browser" && (
                     <BrowserTab />
@@ -91,7 +115,7 @@ export function VirtualSandboxPanel() {
             </div>
         </div>
     );
-}
+});
 
 // ── Sub-components ──────────────────────────────────────────
 
@@ -127,21 +151,21 @@ function BrowserTab() {
                 {ctx.agentEvents.isThinking && (
                     <div className="agent-browsing-overlay">
                         <div className="browsing-spinner" />
-                        <span className="browsing-text">Agent is browsing...</span>
+                        <span className="browsing-text">Agent durchsucht...</span>
                     </div>
                 )}
                 <div className="browser-page" style={{ flex: 1 }}>
                     {ctx.browserContent ? (
                         <div
                             className="browser-preview"
-                            style={{ padding: '12px', fontSize: '12px', lineHeight: 1.5, overflow: 'auto', maxHeight: '100%' }}
-                            dangerouslySetInnerHTML={{ __html: ctx.browserContent }}
+                            style={{ padding: '12px', fontSize: '0.75rem', lineHeight: 1.5, overflow: 'auto', maxHeight: '100%' }}
+                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(ctx.browserContent) }}
                         />
                     ) : (
                         <div className="sandbox-empty" style={{ padding: '24px 16px' }}>
-                            <div className="sandbox-empty-icon">🌐</div>
+                            <div className="sandbox-empty-icon"><Globe className="w-6 h-6" style={{ opacity: 0.4 }} /></div>
                             <h4>Browser bereit</h4>
-                            <p>Web-Ergebnisse und Vorschauen erscheinen hier, wenn MIMI eine Aufgabe ausfuehrt.</p>
+                            <p>Web-Ergebnisse und Vorschauen erscheinen hier, wenn MIMI eine Aufgabe ausführt.</p>
                         </div>
                     )}
                 </div>
@@ -162,9 +186,9 @@ function TerminalTab() {
                         // Terminal clear is handled via context -- this is a UI-only action
                         // We just show a cleared state visually
                     }}
-                    style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer', background: 'none', border: 'none', color: 'inherit' }}
+                    style={{ fontSize: '0.625rem', opacity: 0.5, cursor: 'pointer', background: 'none', border: 'none', color: 'inherit' }}
                 >
-                    Clear
+                    Leeren
                 </button>
             </div>
             <div className="terminal-box">
@@ -211,7 +235,7 @@ function EditorTab() {
                         title="Code kopieren"
                         onClick={() => ctx.handleCopyMessage(activeArtifact.content)}
                     >
-                        📋 Copy
+                        <Copy className="w-3 h-3" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />Kopieren
                     </button>
                 )}
             </div>
@@ -240,7 +264,7 @@ function EditorTab() {
                     />
                 ) : (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
-                        <div className="editor-empty" style={{ textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                        <div className="editor-empty" style={{ textAlign: 'center', color: '#64748b', fontSize: '0.75rem' }}>
                             Dateien werden hier angezeigt, wenn MIMI Code generiert.
                         </div>
                     </div>
@@ -255,7 +279,7 @@ function FilesTab() {
 
     return (
         <div className="sec-files">
-            <div className="sec-label">Files ({ctx.generatedFiles.length + ctx.codeArtifacts.length})</div>
+            <div className="sec-label">Dateien ({ctx.generatedFiles.length + ctx.codeArtifacts.length})</div>
             {(ctx.generatedFiles.length + ctx.codeArtifacts.length) > 0 ? (
                 <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {ctx.codeArtifacts.map((art, i) => (
@@ -266,13 +290,13 @@ function FilesTab() {
                                 display: 'flex', alignItems: 'center', gap: '8px',
                                 padding: '6px 8px', borderRadius: '6px', cursor: 'pointer',
                                 background: 'rgba(255,255,255,0.03)',
-                                fontSize: '11px', color: '#94a3b8',
+                                fontSize: '0.6875rem', color: '#94a3b8',
                                 transition: 'background 0.2s',
                             }}
                         >
-                            <span>📄</span>
+                            <span><FileCode2 className="w-3 h-3" /></span>
                             <span style={{ flex: 1, color: '#e2e8f0' }}>{art.filename}</span>
-                            <span style={{ fontSize: '10px' }}>{art.language}</span>
+                            <span style={{ fontSize: '0.625rem' }}>{art.language}</span>
                             <button
                                 className="file-download-btn"
                                 title="Herunterladen"
@@ -288,7 +312,7 @@ function FilesTab() {
                                     ctx.addToast(`${art.filename} heruntergeladen`);
                                 }}
                             >
-                                ⬇️
+                                <Download className="w-3 h-3" />
                             </button>
                         </div>
                     ))}
@@ -299,19 +323,19 @@ function FilesTab() {
                                 display: 'flex', alignItems: 'center', gap: '8px',
                                 padding: '6px 8px', borderRadius: '6px',
                                 background: 'rgba(255,255,255,0.03)',
-                                fontSize: '11px', color: '#94a3b8',
+                                fontSize: '0.6875rem', color: '#94a3b8',
                             }}
                         >
-                            <span>{file.type === 'create' ? '📄' : file.type === 'update' ? '📝' : '🗑️'}</span>
+                            <span><FileCode2 className="w-3 h-3" /></span>
                             <span style={{ flex: 1, color: '#e2e8f0' }}>{file.name}</span>
-                            <span style={{ fontSize: '10px' }}>{file.type}</span>
+                            <span style={{ fontSize: '0.625rem' }}>{file.type}</span>
                         </div>
                     ))}
                 </div>
             ) : (
                 <div className="files-empty">
-                    <div className="files-empty-icon">📁</div>
-                    <p>Noch keine Dateien erstellt.<br />MIMI erstellt Dateien automatisch waehrend der Arbeit.</p>
+                    <div className="files-empty-icon"><FolderOpen className="w-6 h-6" style={{ opacity: 0.4 }} /></div>
+                    <p>Noch keine Dateien erstellt.<br />MIMI erstellt Dateien automatisch während der Arbeit.</p>
                 </div>
             )}
         </div>
@@ -324,7 +348,7 @@ function ProgressSteps() {
     if (ctx.progressSteps && ctx.progressSteps.length > 0) {
         return (
             <div className="progress-card">
-                <h5>Progress Steps</h5>
+                <h5>Fortschritt</h5>
                 {ctx.progressSteps.map((step, i) => (
                     <div key={i} className={`step step-${step.status}`}>
                         {step.status === "done" && <span className="ico">✓</span>}
@@ -332,7 +356,7 @@ function ProgressSteps() {
                         {step.status === "pending" && <div className="circle" />}
                         {i + 1}. {step.label}
                         <span className="step-right">
-                            ({step.status === "done" ? "Done" : step.status === "running" ? "Active" : "Pending"})
+                            ({step.status === "done" ? "Erledigt" : step.status === "running" ? "Aktiv" : "Ausstehend"})
                         </span>
                     </div>
                 ))}
@@ -343,26 +367,26 @@ function ProgressSteps() {
     if (!ctx.agentEvents.isThinking) {
         return (
             <div className="progress-card">
-                <h5>Progress Steps</h5>
-                <div className="step step-done">
-                    <span className="ico">✓</span>
-                    1. System Initialization
+                <h5>Fortschritt</h5>
+                <div className={`step ${ctx.isReady ? 'step-done' : 'step-running'}`}>
+                    {ctx.isReady ? <span className="ico">✓</span> : <div className="spinner" />}
+                    1. Systeminitialisierung
                     <span className="step-right">
-                        ({ctx.isReady ? "Done" : "Pending"})
+                        ({ctx.isReady ? "Erledigt" : "Lädt..."})
                     </span>
                 </div>
                 <div className={`step step-${ctx.isReady ? "done" : "pending"}`}>
                     {ctx.isReady ? <span className="ico">✓</span> : <div className="circle" />}
-                    2. Ready for Tasks
+                    2. Bereit für Aufgaben
                     <span className="step-right">
-                        ({ctx.isReady ? "Done" : "Pending"})
+                        ({ctx.isReady ? "Erledigt" : "Ausstehend"})
                     </span>
                 </div>
                 <div className={`step ${ctx.isReady ? 'step-awaiting' : 'step-pending'}`}>
                     {ctx.isReady ? <div className="await-ring" /> : <div className="circle" />}
-                    3. Await User Input
+                    3. Warte auf Eingabe
                     <span className="step-right">
-                        ({ctx.isReady ? "Awaiting" : "Pending"})
+                        ({ctx.isReady ? "Wartend" : "Ausstehend"})
                     </span>
                 </div>
             </div>

@@ -13,6 +13,7 @@ import * as webllm from "@mlc-ai/web-llm";
 
 let engine: webllm.MLCEngine | null = null;
 let currentModelId: string | null = null;
+let isWorkerBusy = false; // Prevents concurrent generateResponse calls
 
 // Worker Message Handler
 self.onmessage = async (e: MessageEvent) => {
@@ -25,7 +26,28 @@ self.onmessage = async (e: MessageEvent) => {
                 break;
 
             case "GENERATE":
+                // Wait for any previous generation to finish (e.g., interrupted warm-up)
+                if (isWorkerBusy) {
+                    let waitMs = 0;
+                    while (isWorkerBusy && waitMs < 5000) {
+                        await new Promise(r => setTimeout(r, 100));
+                        waitMs += 100;
+                    }
+                    if (isWorkerBusy) {
+                        console.warn('[Worker] Previous generation still busy after 5s, proceeding anyway');
+                    }
+                }
                 await generateResponse(id, payload.messages, payload.temperature, payload.maxTokens);
+                break;
+
+            case "INTERRUPT":
+                // Abort any in-progress generation (used by warm-up timeout)
+                if (engine) {
+                    try {
+                        engine.interruptGenerate();
+                    } catch { /* already idle */ }
+                }
+                self.postMessage({ type: "INTERRUPTED", id });
                 break;
 
             case "TERMINATE":
@@ -109,8 +131,39 @@ async function initializeEngine(modelId: string): Promise<void> {
     // creates a device with max compute limits
     const restorePatch = patchWebGPULimits();
 
+    // Log GPU capabilities before engine creation for diagnostics
+    try {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (adapter) {
+            const info = (adapter as any).info;
+            console.log(`[Worker] 🖥️ GPU: ${info?.device || 'unknown'} (${info?.vendor || 'unknown'})`);
+            console.log(`[Worker] 💾 maxStorageBuffer: ${(adapter.limits.maxStorageBufferBindingSize / (1024 ** 3)).toFixed(2)} GB`);
+            console.log(`[Worker] ⚙️ maxCompute: ${adapter.limits.maxComputeInvocationsPerWorkgroup}`);
+        }
+    } catch (e: unknown) {
+        console.warn('[Worker] GPU diagnostics failed:', e);
+    }
+
+    // Build optimized appConfig with context window override
+    // Reduces KV cache VRAM by ~500MB (4096→2048) — enough for agentic tool-calling
+    const optimizedModelList = webllm.prebuiltAppConfig.model_list.map(m =>
+        m.model_id === modelId
+            ? {
+                ...m,
+                overrides: {
+                    ...m.overrides,
+                    context_window_size: 2048,
+                },
+            }
+            : m
+    );
+
     try {
         engine = await webllm.CreateMLCEngine(modelId, {
+            appConfig: {
+                model_list: optimizedModelList,
+                useIndexedDBCache: true, // CRITICAL: Cache model weights for 250s→5s reload
+            },
             initProgressCallback: (progress) => {
                 self.postMessage({
                     type: "INIT_PROGRESS",
@@ -120,6 +173,20 @@ async function initializeEngine(modelId: string): Promise<void> {
                         timeElapsed: (Date.now() - startTime) / 1000
                     }
                 });
+
+                // When download is complete (progress ≈ 1.0), WebGPU shader
+                // compilation begins — no more callbacks fire. Notify the UI
+                // so it can show an appropriate status instead of appearing stuck.
+                if (progress.progress >= 0.99) {
+                    self.postMessage({
+                        type: "INIT_PROGRESS",
+                        payload: {
+                            progress: 1.0,
+                            text: "GPU-Shader werden kompiliert — bitte warten...",
+                            timeElapsed: (Date.now() - startTime) / 1000
+                        }
+                    });
+                }
             },
             logLevel: "SILENT",
         });
@@ -128,6 +195,8 @@ async function initializeEngine(modelId: string): Promise<void> {
         restorePatch();
     }
 
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[Worker] ✅ Engine ready in ${elapsed}s — model: ${modelId} (ctx: 2048)`);
     currentModelId = modelId;
     self.postMessage({ type: "READY" });
 }
@@ -193,31 +262,39 @@ async function generateResponse(
         throw new Error("Engine nicht initialisiert");
     }
 
-    // Prepare messages (multimodal conversion if vision model)
-    const preparedMessages = prepareMessages(messages);
+    isWorkerBusy = true;
+    try {
 
-    // Streaming Response
-    const stream = await engine.chat.completions.create({
-        messages: preparedMessages,
-        temperature,
-        max_tokens: maxTokens,
-        stream: true,
-        stream_options: { include_usage: true }
-    });
+        // Prepare messages (multimodal conversion if vision model)
+        const preparedMessages = prepareMessages(messages);
 
-    // Token für Token senden
-    for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content;
-        if (content) {
-            self.postMessage({
-                type: "TOKEN",
-                id,
-                payload: content
-            });
+        // Streaming Response
+        const stream = await engine.chat.completions.create({
+            messages: preparedMessages,
+            temperature,
+            max_tokens: maxTokens,
+            top_p: 0.9,             // Nucleus sampling — cuts low-probability tail
+            frequency_penalty: 0.3,  // Reduces repetitive/rambling output
+            stream: true,
+            stream_options: { include_usage: true }
+        });
+
+        // Token für Token senden
+        for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content;
+            if (content) {
+                self.postMessage({
+                    type: "TOKEN",
+                    id,
+                    payload: content
+                });
+            }
         }
-    }
 
-    self.postMessage({ type: "DONE", id });
+        self.postMessage({ type: "DONE", id });
+    } finally {
+        isWorkerBusy = false;
+    }
 }
 
 // TypeScript für Web Worker

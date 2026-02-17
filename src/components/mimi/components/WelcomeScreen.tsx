@@ -8,18 +8,15 @@
  * © 2026 MIMI Tech AI. All rights reserved.
  */
 
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Brain, Code, FileDown, Mic } from "lucide-react";
-import { useOnboarding } from "@/hooks/mimi/useOnboarding";
 import { CapabilityChips } from "./CapabilityChips";
-import { OnboardingTour } from "./OnboardingTour";
 
 interface WelcomeScreenProps {
     onPromptSelect?: (prompt: string) => void;
 }
 
 export function WelcomeScreen({ onPromptSelect }: WelcomeScreenProps) {
-    const { hasSeenTour, isLoading, markTourSeen } = useOnboarding();
 
     const capabilities = [
         { icon: Brain, text: "Analysiert & plant strukturiert" },
@@ -30,13 +27,6 @@ export function WelcomeScreen({ onPromptSelect }: WelcomeScreenProps) {
 
     return (
         <>
-            {/* Onboarding Tour — only on first visit */}
-            <AnimatePresence>
-                {!isLoading && !hasSeenTour && (
-                    <OnboardingTour onComplete={markTourSeen} />
-                )}
-            </AnimatePresence>
-
             <div className="flex flex-col items-center justify-center h-full text-center py-8">
                 <motion.div
                     initial={{ scale: 0.8, opacity: 0 }}

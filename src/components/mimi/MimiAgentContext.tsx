@@ -15,26 +15,18 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useMimiEngine } from "@/hooks/mimi/useMimiEngine";
 import { useAgentEvents } from "@/hooks/mimi/useAgentEvents";
+import { AgentEvents } from "@/lib/mimi/agent-events";
 import { getChatHistory, type ConversationSummary } from "@/lib/mimi/chat-history";
 import type { ChatMessage } from "@/lib/mimi/inference-engine";
 import type { UseMimiEngineReturn } from "@/hooks/mimi/types";
 import type { UITaskPlan, UIToolExecution, UIFileActivity } from "@/hooks/mimi/useAgentEvents";
+import { detectArtifacts, type DetectedArtifact } from "@/hooks/mimi/useArtifactDetection";
+import { useMemoryToasts, type MemoryToastItem } from "./components/MemoryToast";
 
 // ═══════════════════════════════════════════════════════════
-// SECURITY: HTML sanitization for browser preview panel
+// SECURITY: HTML sanitization (shared utility)
 // ═══════════════════════════════════════════════════════════
-
-/** Strip dangerous HTML tags/attributes to prevent XSS in browser preview panel */
-function sanitizeHtml(html: string): string {
-    let safe = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-    safe = safe.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    safe = safe.replace(/href\s*=\s*["']?\s*javascript:/gi, 'href="');
-    safe = safe.replace(/src\s*=\s*["']?\s*javascript:/gi, 'src="');
-    safe = safe.replace(/src\s*=\s*["']?\s*data:text\/html/gi, 'src="');
-    safe = safe.replace(/<\s*\/?\s*(iframe|object|embed|form|base|meta|link)\b[^>]*>/gi, '');
-    safe = safe.replace(/style\s*=\s*["'][^"']*expression\s*\([^"']*["']/gi, '');
-    return safe;
-}
+import { sanitizeHtml } from "./utils/sanitize";
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
@@ -67,6 +59,7 @@ interface ToolPill {
     output?: string;
     duration?: number;
     timestamp: number;
+    messageIndex: number; // M2: which assistant message (by index) triggered this tool
 }
 
 export interface MimiAgentContextValue {
@@ -123,6 +116,13 @@ export interface MimiAgentContextValue {
     taskCompleted: boolean;
     agentElapsedTime: number;
 
+    // Artifacts (Claude-style)
+    detectedArtifacts: DetectedArtifact[];
+    activeDetectedArtifact: DetectedArtifact | null;
+    setActiveDetectedArtifact: (a: DetectedArtifact | null) => void;
+    openArtifact: (a: DetectedArtifact) => void;
+    closeArtifact: () => void;
+
     // UI
     sidebarCollapsed: boolean;
     setSidebarCollapsed: (v: boolean | ((prev: boolean) => boolean)) => void;
@@ -134,10 +134,17 @@ export interface MimiAgentContextValue {
     setEditingConvId: (id: string | null) => void;
     editingTitle: string;
     setEditingTitle: (t: string) => void;
-    hoveredMsgIdx: number | null;
-    setHoveredMsgIdx: (idx: number | null) => void;
+
     toasts: { id: number; msg: string }[];
     addToast: (msg: string) => void;
+
+    // Memory Toasts
+    memoryToasts: MemoryToastItem[];
+    showMemoryToast: (text: string) => void;
+    dismissMemoryToast: (id: string) => void;
+
+    // Agent Swarm
+    activeSwarmAgents: string[];
 
     // Computed
     statusText: string;
@@ -165,14 +172,19 @@ export function useMimiAgentContext(): MimiAgentContextValue {
 export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     const engine = useMimiEngine();
     const agentEvents = useAgentEvents();
+    const { toasts: memoryToasts, showMemoryToast, dismissToast: dismissMemoryToast } = useMemoryToasts();
 
     // Chat state
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [currentResponse, setCurrentResponse] = useState("");
-    const [isGenerating, setIsGenerating] = useState(false);
+    // H4 FIX: isGenerating comes exclusively from engine hook (single source of truth)
+    const isGenerating = engine.isGenerating;
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // H1 FIX: Ref always holds latest messages — no stale closure in handleSend
+    const messagesRef = useRef<ChatMessage[]>(messages);
+    useEffect(() => { messagesRef.current = messages; }, [messages]);
 
     // Conversations
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -211,9 +223,20 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
-    const [hoveredMsgIdx, setHoveredMsgIdx] = useState<number | null>(null);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const toastIdRef = useRef(0);
+
+    // Artifact Panel state
+    const [activeDetectedArtifact, setActiveDetectedArtifact] = useState<DetectedArtifact | null>(null);
+
+    const openArtifact = useCallback((artifact: DetectedArtifact) => {
+        setActiveDetectedArtifact(artifact);
+        setActiveTab('browser'); // Switch to browser tab to show artifact panel
+    }, []);
+
+    const closeArtifact = useCallback(() => {
+        setActiveDetectedArtifact(null);
+    }, []);
 
     // ── Load conversations ──────────────────────────────────────
     useEffect(() => {
@@ -246,8 +269,15 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     }, [engine.agentStatus]);
 
     // ── Auto-scroll messages ────────────────────────────────────
+    // Use manual scrollTop instead of scrollIntoView to prevent scroll
+    // propagation to mimi-outer-wrap (which has overflow from glow elements)
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        const el = messagesEndRef.current;
+        if (!el) return;
+        const container = el.closest('.chat-messages');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
     }, [messages, currentResponse]);
 
     // ── Load conversation when switching ────────────────────────
@@ -273,6 +303,20 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     }, [activeConversationId]);
 
     // ── Parse code artifacts from messages ───────────────────────
+    const detectedArtifacts = useMemo(() => {
+        const all: DetectedArtifact[] = [];
+        messages.forEach(msg => {
+            if (msg.role !== "assistant") return;
+            all.push(...detectArtifacts(msg.content));
+        });
+        // Also check currentResponse for streaming
+        if (currentResponse) {
+            all.push(...detectArtifacts(currentResponse));
+        }
+        return all;
+    }, [messages, currentResponse]);
+
+    // Legacy code artifacts for Editor tab
     useEffect(() => {
         const artifacts: CodeArtifact[] = [];
         const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
@@ -320,7 +364,14 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
             const pillId = `pill-${Date.now()}-${toolName}`;
             setCompletedToolPills(prev => [
                 ...prev,
-                { id: pillId, toolName, status: 'running', timestamp: Date.now() }
+                {
+                    id: pillId,
+                    toolName,
+                    status: 'running',
+                    timestamp: Date.now(),
+                    // M2: associate with current assistant message count
+                    messageIndex: messagesRef.current.filter(m => m.role === 'assistant').length,
+                }
             ]);
 
             if (toolName === 'web_search') {
@@ -358,6 +409,7 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
                         output: latestTool.output,
                         duration: latestTool.duration,
                         timestamp: Date.now(),
+                        messageIndex: messagesRef.current.filter(m => m.role === 'assistant').length,
                     });
                 }
                 return updated;
@@ -423,7 +475,7 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         if (!text || isGenerating || engine.state !== "ready") return;
 
         setInput("");
-        setIsGenerating(true);
+        // H4: engine.handleSendMessage sets isGenerating=true internally
         setCurrentResponse("");
 
         terminalLinesRef.current = [
@@ -459,7 +511,8 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
                 if (!activeConversationId || activeConversationId.startsWith("conv-")) {
                     const newId = await service.createConversation(text);
                     setActiveConversationId(newId);
-                    const allMsgs = [...messages, userMsg, assistantMsg].map((m, i) => ({
+                    // H1 FIX: Use messagesRef.current for latest state (not stale closure)
+                    const allMsgs = [...messagesRef.current, userMsg, assistantMsg].map((m, i) => ({
                         id: `msg-${i}`,
                         role: m.role as "user" | "assistant",
                         content: m.content,
@@ -467,7 +520,7 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
                     }));
                     await service.saveConversation(newId, allMsgs);
                 } else {
-                    const allMsgs = [...messages, userMsg, assistantMsg].map((m, i) => ({
+                    const allMsgs = [...messagesRef.current, userMsg, assistantMsg].map((m, i) => ({
                         id: `msg-${i}`,
                         role: m.role as "user" | "assistant",
                         content: m.content,
@@ -487,15 +540,25 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
             }
         } catch (err) {
             console.error("Send error:", err);
+            // H3 FIX: Show user-visible error message in chat
+            const errorMsg: ChatMessage = {
+                role: "assistant",
+                content: "⚠️ Es tut mir leid, bei der Generierung ist ein Fehler aufgetreten. Bitte versuche es erneut."
+            };
+            setMessages(prev => [...prev, errorMsg]);
+            setCurrentResponse("");
             terminalLinesRef.current = [
                 ...terminalLinesRef.current,
                 { prefix: "[ERROR]:", msg: String(err), type: "error" },
             ];
             setTerminalVersion(v => v + 1);
         } finally {
-            setIsGenerating(false);
+            // H4: engine.handleSendMessage sets isGenerating=false in its own finally
+            // BUG-4 FIX: Guarantee event bus resets even on error
+            AgentEvents.thinkingEnd();
+            AgentEvents.statusChange('idle');
         }
-    }, [input, isGenerating, engine, activeConversationId, messages]);
+    }, [input, isGenerating, engine, activeConversationId]);
 
     // ── New conversation ────────────────────────────────────────
     const handleNewConversation = useCallback(async () => {
@@ -559,9 +622,9 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
                     setActiveConversationId(null);
                 }
             }
-            addToast("Konversation geloescht");
+            addToast("Konversation gelöscht");
         } catch {
-            addToast("Fehler beim Loeschen");
+            addToast("Fehler beim Löschen");
         }
         setConfirmDeleteId(null);
     }, [activeConversationId, addToast]);
@@ -651,6 +714,34 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         return null;
     }, [agentEvents.activePlan]);
 
+    // Derive swarm agents from agentEvents for the AgentSwarmPanel
+    const activeSwarmAgents = useMemo<string[]>(() => {
+        const agents: string[] = [];
+        if (agentEvents.activeAgent) {
+            agents.push(agentEvents.activeAgent);
+        }
+        // Map recent tools to specialist agents
+        if (agentEvents.recentTools && agentEvents.recentTools.length > 0) {
+            const toolAgentMap: Record<string, string> = {
+                'execute_python': 'code-expert',
+                'execute_javascript': 'code-expert',
+                'web_search': 'web-researcher',
+                'search_documents': 'research-agent',
+                'analyze_image': 'data-analyst',
+                'create_file': 'document-expert',
+                'write_file': 'document-expert',
+                'calculate': 'math-specialist',
+            };
+            agentEvents.recentTools.forEach(tool => {
+                const mapped = toolAgentMap[tool.toolName];
+                if (mapped && !agents.includes(mapped)) {
+                    agents.push(mapped);
+                }
+            });
+        }
+        return agents;
+    }, [agentEvents.activeAgent, agentEvents.recentTools]);
+
     const filteredConversations = useMemo(() => {
         if (!searchQuery.trim()) return conversations;
         return conversations.filter(c =>
@@ -667,7 +758,7 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
             { label: "Heute", items: [] },
             { label: "Gestern", items: [] },
             { label: "Diese Woche", items: [] },
-            { label: "Aelter", items: [] },
+            { label: "Älter", items: [] },
         ];
         filteredConversations.forEach(conv => {
             const d = new Date(conv.updatedAt);
@@ -694,13 +785,16 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         codeArtifacts, activeArtifactIdx, setActiveArtifactIdx,
         generatedFiles, terminalLines, browserContent,
         completedToolPills, taskCompleted, agentElapsedTime,
+        detectedArtifacts, activeDetectedArtifact, setActiveDetectedArtifact,
+        openArtifact, closeArtifact,
         sidebarCollapsed, setSidebarCollapsed,
         showSettings, setShowSettings,
         confirmDeleteId, setConfirmDeleteId,
         editingConvId, setEditingConvId,
         editingTitle, setEditingTitle,
-        hoveredMsgIdx, setHoveredMsgIdx,
         toasts, addToast,
+        memoryToasts, showMemoryToast, dismissMemoryToast,
+        activeSwarmAgents,
         statusText, isReady, isIdle, progressSteps,
         messagesEndRef, textareaRef,
     }), [
@@ -715,12 +809,15 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         codeArtifacts, activeArtifactIdx,
         generatedFiles, terminalLines, browserContent,
         completedToolPills, taskCompleted, agentElapsedTime,
+        detectedArtifacts, activeDetectedArtifact,
+        openArtifact, closeArtifact,
         sidebarCollapsed,
         showSettings,
         confirmDeleteId,
         editingConvId, editingTitle,
-        hoveredMsgIdx,
         toasts, addToast,
+        memoryToasts, showMemoryToast, dismissMemoryToast,
+        activeSwarmAgents,
         statusText, isReady, isIdle, progressSteps,
     ]);
 

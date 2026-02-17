@@ -9,42 +9,46 @@
  * © 2026 MIMI Tech AI. All rights reserved.
  */
 
+import { memo } from "react";
 import { useMimiAgentContext } from "../MimiAgentContext";
+import {
+    MessageSquare, Brain, FolderOpen, Settings, Search, Trash2, X
+} from "lucide-react";
 
-export function TaskListPanel() {
+export const TaskListPanel = memo(function TaskListPanel() {
     const ctx = useMimiAgentContext();
 
     return (
         <div className="mimi-panel panel-left">
             {/* Icon Rail Navigation */}
-            <div className="sidebar-icon-rail">
-                <div className="icon-rail-item active" data-tooltip="Chat" title="Chat">
-                    💬
+            <div className="sidebar-icon-rail" role="navigation" aria-label="Hauptnavigation">
+                <div className="icon-rail-item active" title="Chat">
+                    <MessageSquare className="w-4 h-4" />
                 </div>
-                <div className="icon-rail-item" data-tooltip="Knowledge" title="Knowledge">
-                    🧠
+                <div className="icon-rail-item disabled" title="Kommt bald" style={{ opacity: 0.35, cursor: 'default' }} aria-disabled="true">
+                    <Brain className="w-4 h-4" />
                 </div>
-                <div className="icon-rail-item" data-tooltip="Files" title="Files">
-                    📁
+                <div className="icon-rail-item disabled" title="Kommt bald" style={{ opacity: 0.35, cursor: 'default' }} aria-disabled="true">
+                    <FolderOpen className="w-4 h-4" />
                 </div>
                 <div style={{ marginTop: 'auto' }} />
-                <div className="icon-rail-item" data-tooltip="Settings" title="Settings" onClick={() => ctx.setShowSettings(true)}>
-                    ⚙️
+                <div className="icon-rail-item" title="Einstellungen" onClick={() => ctx.setShowSettings(true)}>
+                    <Settings className="w-4 h-4" />
                 </div>
             </div>
 
             <div className="logo-row">
                 <div className="logo-avatar">M</div>
                 <div className="search-box">
-                    <span className="icon">🔍</span>
+                    <span className="icon"><Search className="w-3.5 h-3.5" /></span>
                     <input
                         type="text"
-                        placeholder="Search"
+                        placeholder="Suchen"
                         value={ctx.searchQuery}
                         onChange={e => ctx.setSearchQuery(e.target.value)}
                     />
                     {ctx.searchQuery && (
-                        <button className="search-clear" onClick={() => ctx.setSearchQuery("")} title="Clear search">✕</button>
+                        <button className="search-clear" onClick={() => ctx.setSearchQuery("")} title="Suche löschen"><X className="w-3 h-3" /></button>
                     )}
                 </div>
             </div>
@@ -83,10 +87,10 @@ export function TaskListPanel() {
                                     </div>
                                     <button
                                         className="task-delete-btn"
-                                        title="Loeschen"
+                                        title="Löschen"
                                         onClick={e => { e.stopPropagation(); ctx.setConfirmDeleteId(conv.id); }}
                                     >
-                                        🗑️
+                                        <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                 </div>
                             ))}
@@ -94,18 +98,15 @@ export function TaskListPanel() {
                     ))
                 ) : (
                     <div className="tasks-empty">
-                        <div className="tasks-empty-icon">💬</div>
+                        <div className="tasks-empty-icon"><MessageSquare className="w-6 h-6" style={{ opacity: 0.4 }} /></div>
                         <p>{ctx.searchQuery ? "Keine Ergebnisse" : "Starten Sie Ihre erste Konversation"}</p>
                     </div>
                 )}
             </div>
 
             <div className="sidebar-bottom">
-                <button className="new-thread-btn" onClick={ctx.handleNewConversation}>+ New Thread</button>
-                <div className="user-row" style={{ justifyContent: 'center' }}>
-                    <span title="Einstellungen" style={{ cursor: 'pointer', fontSize: '16px', opacity: 0.5 }} onClick={() => ctx.setShowSettings(true)}>⚙</span>
-                </div>
+                <button className="new-thread-btn" onClick={ctx.handleNewConversation}>+ Neues Gespräch</button>
             </div>
         </div>
     );
-}
+});

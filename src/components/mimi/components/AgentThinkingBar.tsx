@@ -70,7 +70,7 @@ const AgentThinkingBar = memo(({
     const [expanded, setExpanded] = useState(false);
 
     // Don't show when idle and no recent activity
-    if (status === 'idle' && elapsedTime === 0) return null;
+    if (status === 'idle' && elapsedTime === 0 && !isThinking && !thinkingContent) return null;
 
     const agentIcon = AGENT_ICONS[agent || 'default'] || AGENT_ICONS['default'];
     const agentName = agent ? agent.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'MIMI';

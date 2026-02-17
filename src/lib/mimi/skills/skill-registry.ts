@@ -128,7 +128,6 @@ export class SkillRegistry {
 
             for (const [skillName, content] of Object.entries(BUILTIN_SKILLS_CONTENT)) {
                 this.skillContentCache.set(skillName, content);
-                console.log(`[SkillRegistry] ✅ Loaded skill: ${skillName}`);
             }
 
             console.log(`[SkillRegistry] Preloaded ${this.skillContentCache.size} builtin skills`);
@@ -233,7 +232,7 @@ export class SkillRegistry {
                 // Note: skills are tracked via the returned array, which gets
                 // assigned to this.loadedSkills in initialize() — no duplicate push needed
 
-                console.log(`[SkillRegistry] ✅ Loaded skill: ${skillName}`);
+                // Skill loaded successfully (logged once at initialize summary)
             } catch (error) {
                 console.error(`[SkillRegistry] ❌ Failed to load builtin skill ${skillName}:`, error);
             }
@@ -251,9 +250,8 @@ export class SkillRegistry {
         // For now, return empty array
         // TODO: Implement API endpoint to list external skills
 
-        if (this.config.enableExternal) {
-            console.log('[SkillRegistry] External skills discovery requires API endpoint (not yet implemented)');
-        }
+        // External skills require API endpoint (not yet implemented)
+        // No log to avoid console noise
         return [];
     }
 

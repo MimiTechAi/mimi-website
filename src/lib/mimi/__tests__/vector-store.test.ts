@@ -198,3 +198,73 @@ describe('Text Tokenization for BM25', () => {
         expect(tokens).toEqual([]);
     });
 });
+
+describe('BM25 Term Frequency (B-21)', () => {
+    // Test the BM25 scoring logic conceptually
+    // BM25 = IDF * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl/avgdl))
+
+    function bm25Score(
+        queryTerms: string[],
+        docTerms: string[],
+        totalDocs: number,
+        docFreqs: Record<string, number>,
+        avgDocLength: number,
+        k1 = 1.5,
+        b = 0.75
+    ): number {
+        const termFreq: Record<string, number> = {};
+        for (const t of docTerms) termFreq[t] = (termFreq[t] || 0) + 1;
+
+        let score = 0;
+        for (const term of queryTerms) {
+            const tf = termFreq[term] || 0;
+            if (tf > 0) {
+                const df = docFreqs[term] || 0;
+                const idf = Math.log(1 + (totalDocs - 1) / (1 + df));
+                const numerator = tf * (k1 + 1);
+                const denominator = tf + k1 * (1 - b + b * (docTerms.length / avgDocLength));
+                score += idf * (numerator / denominator);
+            }
+        }
+        return score;
+    }
+
+    it('should return 0 for absent query terms', () => {
+        const score = bm25Score(['banana'], ['apple', 'orange'], 10, { banana: 0 }, 5);
+        expect(score).toBe(0);
+    });
+
+    it('should score higher for documents with more term occurrences', () => {
+        const single = bm25Score(['cat'], ['cat', 'dog'], 10, { cat: 2 }, 5);
+        const multiple = bm25Score(['cat'], ['cat', 'cat', 'dog'], 10, { cat: 2 }, 5);
+        expect(multiple).toBeGreaterThan(single);
+    });
+
+    it('should score rarer terms higher (IDF effect)', () => {
+        // 'python' appears in 1 doc, 'the' appears in 9 docs
+        const rare = bm25Score(['python'], ['python'], 10, { python: 1 }, 5);
+        const common = bm25Score(['the'], ['the'], 10, { the: 9 }, 5);
+        expect(rare).toBeGreaterThan(common);
+    });
+
+    it('should handle empty query', () => {
+        const score = bm25Score([], ['hello', 'world'], 10, {}, 5);
+        expect(score).toBe(0);
+    });
+
+    it('should handle empty document', () => {
+        const score = bm25Score(['test'], [], 10, { test: 1 }, 5);
+        expect(score).toBe(0);
+    });
+
+    it('should produce non-negative scores', () => {
+        const score = bm25Score(
+            ['machine', 'learning'],
+            ['machine', 'learning', 'is', 'great'],
+            100,
+            { machine: 10, learning: 15 },
+            20
+        );
+        expect(score).toBeGreaterThanOrEqual(0);
+    });
+});

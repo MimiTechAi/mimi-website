@@ -7,8 +7,7 @@ import "./globals.css";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import LayoutOverlays from "@/components/LayoutOverlays";
 import { Analytics } from "@vercel/analytics/react";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
+import { GeistSans, GeistMono } from "@/lib/fonts";
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.mimitechai.com'),
@@ -83,10 +82,11 @@ export default function RootLayout({
         <meta name="msapplication-TileColor" content="#000000" />
         <meta name="msapplication-config" content="/browserconfig.xml" />
         {/* Preload moved to homepage to avoid unused preload warnings */}
-        {/* DNS prefetch for external resources */}
+        {/* L3 FIX: preconnect + dns-prefetch for Google Fonts (eliminates font preload warnings) */}
         <link rel="dns-prefetch" href="//fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="//fonts.gstatic.com" />
-        <link rel="preconnect" href="//fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="//slelguoygbfzlpylpxfs.supabase.co" />
         <link rel="preconnect" href="//slelguoygbfzlpylpxfs.supabase.co" crossOrigin="anonymous" />
       </head>

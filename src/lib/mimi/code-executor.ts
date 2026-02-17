@@ -81,6 +81,26 @@ export function autoFixCode(code: string): string {
     fixed = fixed.replace(/%matplotlib\s+inline\s*/g, '');
     fixed = fixed.replace(/%matplotlib\s*/g, '');
 
+    // ========== STEP 2.5: COMMON LLM TYPOS ==========
+    // Guard: empty or whitespace-only input
+    if (fixed.trim().length === 0) return '';
+
+    // Common LLM-generated typos
+    fixed = fixed.replace(/\bpritn\b/g, 'print');
+    fixed = fixed.replace(/\bprnt\b/g, 'print');
+    fixed = fixed.replace(/\bpirnt\b/g, 'print');
+    fixed = fixed.replace(/\blenght\b/g, 'length');
+    fixed = fixed.replace(/\blegnth\b/g, 'length');
+    fixed = fixed.replace(/\bretrun\b/g, 'return');
+    fixed = fixed.replace(/\bretrn\b/g, 'return');
+    fixed = fixed.replace(/\bimprot\b/g, 'import');
+    fixed = fixed.replace(/\bimoprt\b/g, 'import');
+    fixed = fixed.replace(/\bfunciton\b/g, 'function');
+    fixed = fixed.replace(/\bfuncion\b/g, 'function');
+    fixed = fixed.replace(/\bture\b/g, 'true');
+    fixed = fixed.replace(/\bflase\b/g, 'false');
+    fixed = fixed.replace(/\bfalse\b/g, 'false');  // already correct, no-op guard
+
     // ========== STEP 3: np.pi TYPOS ==========
     // WICHTIG: Diese Pattern ZUERST, bevor andere
     fixed = fixed.replace(/\bnp0\.pi\b/g, 'np.pi');  // np0.pi → np.pi (Tippfehler)
@@ -158,6 +178,13 @@ export function preloadPyodide(): void {
     preloadPromise = initPyodide().catch(err => {
         console.warn('Pyodide preload failed:', err);
     });
+}
+
+/**
+ * Returns the preload promise so callers can await Pyodide readiness
+ */
+export function getPyodidePromise(): Promise<void> | null {
+    return preloadPromise;
 }
 
 /**
@@ -367,14 +394,79 @@ _output = _stdout_capture.getvalue()
 }
 
 /**
+ * Dangerous keywords that must NEVER appear in a calculate() expression.
+ * These could escape the math sandbox and execute arbitrary Python.
+ */
+const DANGEROUS_KEYWORDS = [
+    '__import__', '__class__', '__mro__', '__subclasses__', '__builtins__',
+    '__globals__', '__getattribute__', '__dict__',
+    'import', 'exec', 'eval', 'open', 'system', 'compile',
+    'getattr', 'setattr', 'delattr', 'globals', 'locals',
+    'breakpoint', 'input', 'print', // print is handled by wrapper, not user expression
+];
+
+/**
+ * Allowed function/constant names in expressions.
+ * Everything else with alpha chars is rejected.
+ */
+const ALLOWED_IDENTIFIERS = new Set([
+    // Python math module
+    'math', 'sqrt', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+    'log', 'log2', 'log10', 'exp', 'pow', 'pi', 'e', 'tau', 'inf',
+    'ceil', 'floor', 'factorial', 'gcd', 'degrees', 'radians',
+    'sinh', 'cosh', 'tanh',
+    // Numpy
+    'np',
+    // Python builtins (safe)
+    'abs', 'round', 'min', 'max', 'sum', 'int', 'float',
+    'True', 'False',
+]);
+
+/** Maximum expression length to prevent abuse */
+const MAX_EXPRESSION_LENGTH = 200;
+
+/**
+ * Validates whether a math expression is safe for execution.
+ * Exported for testing (B-01 TDD).
+ */
+export function isExpressionSafe(expression: string): boolean {
+    const trimmed = expression.trim();
+
+    // Reject empty
+    if (trimmed.length === 0) return false;
+
+    // Reject too long
+    if (trimmed.length > MAX_EXPRESSION_LENGTH) return false;
+
+    // Reject dunder access (__ anywhere)
+    if (trimmed.includes('__')) return false;
+
+    // Reject dangerous keywords (case-sensitive, word-boundary)
+    const lowerExpr = trimmed.toLowerCase();
+    for (const keyword of DANGEROUS_KEYWORDS) {
+        // Use word boundary check to avoid false positives
+        const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+        if (regex.test(lowerExpr)) return false;
+    }
+
+    // Extract all identifiers (alpha sequences) and validate each
+    const identifiers = trimmed.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) || [];
+    for (const id of identifiers) {
+        if (!ALLOWED_IDENTIFIERS.has(id)) return false;
+    }
+
+    return true;
+}
+
+/**
  * Berechnet mathematische Ausdrücke sicher
  */
 export async function calculate(expression: string): Promise<CodeExecutionResult> {
-    // Sanitize: only allow math-safe characters to prevent code injection
-    const sanitized = expression.replace(/[^0-9+\-*/().,%^ a-zA-Z_]/g, '');
-    if (sanitized.length === 0 || sanitized !== expression.replace(/\s+/g, ' ').trim().replace(/[^0-9+\-*/().,%^ a-zA-Z_]/g, '')) {
+    if (!isExpressionSafe(expression)) {
         return { success: false, output: '', error: 'Ungültiger Ausdruck', executionTime: 0 };
     }
+
+    const sanitized = expression.trim();
     const code = `
 import math
 import numpy as np

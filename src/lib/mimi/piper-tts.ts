@@ -7,6 +7,13 @@
  * - Cross-Browser Kompatibilität
  */
 
+// Helper: Turbopack-safe dynamic import for onnxruntime-web
+// Uses runtime string construction to bypass Turbopack's static module analysis
+const loadOnnxRuntime = () => {
+    const moduleName = ['onnxruntime', 'web'].join('-');
+    return new Function('m', 'return import(m)')(moduleName);
+};
+
 export interface PiperVoice {
     id: string;
     name: string;
@@ -70,6 +77,21 @@ export const PIPER_VOICES: PiperVoice[] = [
     }
 ];
 
+/** B-06: Typed ONNX session interface (subset of onnxruntime-web's InferenceSession) */
+interface OnnxInferenceSession {
+    run(feeds: Record<string, unknown>): Promise<Record<string, { data: Float32Array; dims: number[] }>>;
+    release(): Promise<void>;
+}
+
+/** B-06: Typed Piper voice configuration */
+interface PiperVoiceConfig {
+    audio?: { sample_rate?: number };
+    num_symbols?: number;
+    phoneme_map?: Record<string, number[]>;
+    inference?: { noise_scale?: number; length_scale?: number; noise_w?: number };
+    [key: string]: unknown;
+}
+
 /**
  * Piper TTS Engine - Lokale Stimmsynthese
  */
@@ -77,8 +99,8 @@ class PiperTTSEngine {
     private audioContext: AudioContext | null = null;
     private currentVoice: PiperVoice | null = null;
     private isInitialized = false;
-    private onnxSession: any = null;
-    private voiceConfig: any = null;
+    private onnxSession: OnnxInferenceSession | null = null;
+    private voiceConfig: PiperVoiceConfig | null = null;
     private initPromise: Promise<void> | null = null;
 
     /**
@@ -117,7 +139,7 @@ class PiperTTSEngine {
 
             // 2. ONNX Runtime laden (dynamic import)
             onProgress?.('Lade ONNX Runtime...');
-            const ort = await import('onnxruntime-web');
+            const ort = await loadOnnxRuntime();
 
             // 3. Stimm-Konfiguration laden
             onProgress?.(`Lade Stimme "${voice.name}"...`);
@@ -160,7 +182,7 @@ class PiperTTSEngine {
         const phonemes = this.textToPhonemes(normalizedText);
 
         // ONNX Inference
-        const ort = await import('onnxruntime-web');
+        const ort = await loadOnnxRuntime();
 
         // Input-Tensor erstellen
         const phonemeIds = new BigInt64Array(phonemes.map(p => BigInt(p)));
@@ -326,7 +348,7 @@ class PiperTTSEngine {
         if (this.audioContext) {
             try {
                 await this.audioContext.close();
-            } catch (e) {
+            } catch (e: unknown) {
                 // AudioContext may already be closed
             }
             this.audioContext = null;

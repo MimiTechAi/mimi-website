@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Clock, Play, Square, Plus, FileText, CheckCircle, AlertCircle, Calendar as CalendarIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { getCachedTimeTrackingData } from "@/lib/cache";
 import { motion } from "framer-motion";
 import SpotlightCard from "@/components/SpotlightCard";
 
@@ -71,12 +70,24 @@ export default function TimeTrackingPage() {
 
   const fetchData = async () => {
     try {
-      // Abrufen der gecachten Zeiterfassungsdaten
-      const data = await getCachedTimeTrackingData();
-      if (data) {
-        if (data.projects) setProjects(data.projects);
-        if (data.timeEntries) setTimeEntries(data.timeEntries);
-        if (data.approvals) setApprovals(data.approvals);
+      // Fetch time-tracking data via API (client-safe, avoids importing next-auth)
+      const [projectsRes, entriesRes, approvalsRes] = await Promise.all([
+        fetch('/api/internal/time-tracking?action=projects'),
+        fetch('/api/internal/time-tracking'),
+        fetch('/api/internal/time-tracking?action=approvals'),
+      ]);
+
+      if (projectsRes.ok) {
+        const data = await projectsRes.json();
+        if (data.success && data.projects) setProjects(data.projects);
+      }
+      if (entriesRes.ok) {
+        const data = await entriesRes.json();
+        if (data.success && data.timeEntries) setTimeEntries(data.timeEntries);
+      }
+      if (approvalsRes.ok) {
+        const data = await approvalsRes.json();
+        if (data.success && data.approvals) setApprovals(data.approvals);
       }
     } catch (error) {
       console.error("Fehler beim Laden der Zeiterfassungsdaten:", error);

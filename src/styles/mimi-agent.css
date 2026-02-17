@@ -10,13 +10,16 @@
    OUTER WRAPPER — dark frame
    ============================== */
 .mimi-outer-wrap {
-    width: 100%;
-    height: 100%;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    /* Dynamic viewport height for mobile browsers */
     padding: 10px;
     display: flex;
     flex-direction: column;
     position: fixed;
     inset: 0;
+    z-index: 9999;
     overflow: hidden;
     border-radius: 16px;
     background:
@@ -28,6 +31,8 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     color: #fff;
     -webkit-font-smoothing: antialiased;
+    /* Performance: CSS containment prevents glow animations from triggering layout */
+    contain: layout style paint;
     /* Neon purple/cyan border glow — mockup style */
     box-shadow:
         inset 0 0 0 1px rgba(0, 212, 255, 0.12),
@@ -52,13 +57,27 @@
     pointer-events: none;
     z-index: 0;
     animation: glowFloat1 60s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes glowFloat1 {
-    0%, 100% { transform: translate(0, 0); }
-    25% { transform: translate(20px, -10px); }
-    50% { transform: translate(-15px, 20px); }
-    75% { transform: translate(10px, -15px); }
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    25% {
+        transform: translate(20px, -10px);
+    }
+
+    50% {
+        transform: translate(-15px, 20px);
+    }
+
+    75% {
+        transform: translate(10px, -15px);
+    }
 }
 
 /* Glow 2: Top-center blue */
@@ -73,12 +92,23 @@
     pointer-events: none;
     z-index: 0;
     animation: glowFloat2 70s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes glowFloat2 {
-    0%, 100% { transform: translate(0, 0); }
-    33% { transform: translate(-25px, 15px); }
-    66% { transform: translate(20px, -20px); }
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    33% {
+        transform: translate(-25px, 15px);
+    }
+
+    66% {
+        transform: translate(20px, -20px);
+    }
 }
 
 /* Glow 3: Center-left turquoise */
@@ -93,11 +123,19 @@
     pointer-events: none;
     z-index: 0;
     animation: glowFloat3 65s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes glowFloat3 {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    50% { transform: translate(15px, -25px) scale(1.1); }
+
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+
+    50% {
+        transform: translate(15px, -25px) scale(1.1);
+    }
 }
 
 /* Glow 4: Bottom-right cyan */
@@ -112,12 +150,23 @@
     pointer-events: none;
     z-index: 0;
     animation: glowFloat4 55s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes glowFloat4 {
-    0%, 100% { transform: translate(0, 0); }
-    40% { transform: translate(-20px, 10px); }
-    80% { transform: translate(15px, -15px); }
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    40% {
+        transform: translate(-20px, 10px);
+    }
+
+    80% {
+        transform: translate(15px, -15px);
+    }
 }
 
 /* Glow 5: Bottom-left blue */
@@ -132,12 +181,23 @@
     pointer-events: none;
     z-index: 0;
     animation: glowFloat5 75s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes glowFloat5 {
-    0%, 100% { transform: translate(0, 0); }
-    30% { transform: translate(18px, -12px); }
-    70% { transform: translate(-22px, 18px); }
+
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+
+    30% {
+        transform: translate(18px, -12px);
+    }
+
+    70% {
+        transform: translate(-22px, 18px);
+    }
 }
 
 /* Glow 6: Center silver accent */
@@ -152,13 +212,27 @@
     pointer-events: none;
     z-index: 0;
     animation: glowFloat6 80s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes glowFloat6 {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    25% { transform: translate(-10px, 15px) scale(1.05); }
-    50% { transform: translate(12px, -10px) scale(0.95); }
-    75% { transform: translate(-8px, -12px) scale(1.05); }
+
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+
+    25% {
+        transform: translate(-10px, 15px) scale(1.05);
+    }
+
+    50% {
+        transform: translate(12px, -10px) scale(0.95);
+    }
+
+    75% {
+        transform: translate(-8px, -12px) scale(1.05);
+    }
 }
 
 /* ==============================
@@ -290,9 +364,11 @@
     0% {
         background-position: 0% 50%;
     }
+
     50% {
         background-position: 100% 50%;
     }
+
     100% {
         background-position: 0% 50%;
     }
@@ -534,18 +610,26 @@
     width: 100%;
     flex-shrink: 0;
     /* Silver → Blue → Cyan → Turquoise → Green gradient */
-    background: linear-gradient(
-        90deg,
-        #c0c8d8,      /* silver */
-        #3b82f6,      /* blue */
-        #00d4ff,      /* cyan */
-        #06b6d4,      /* turquoise */
-        #22c55e,      /* green */
-        #06b6d4,      /* turquoise */
-        #00d4ff,      /* cyan */
-        #3b82f6,      /* blue */
-        #c0c8d8       /* silver */
-    );
+    background: linear-gradient(90deg,
+            #c0c8d8,
+            /* silver */
+            #3b82f6,
+            /* blue */
+            #00d4ff,
+            /* cyan */
+            #06b6d4,
+            /* turquoise */
+            #22c55e,
+            /* green */
+            #06b6d4,
+            /* turquoise */
+            #00d4ff,
+            /* cyan */
+            #3b82f6,
+            /* blue */
+            #c0c8d8
+            /* silver */
+        );
     background-size: 400% 100%;
     animation: auroraMove 8s ease-in-out infinite;
 }
@@ -554,9 +638,11 @@
     0% {
         background-position: 0% 50%;
     }
+
     50% {
         background-position: 100% 50%;
     }
+
     100% {
         background-position: 0% 50%;
     }
@@ -641,9 +727,12 @@
 }
 
 @keyframes shimmerText {
-    0%, 100% {
+
+    0%,
+    100% {
         background-position: 0% 50%;
     }
+
     50% {
         background-position: 100% 50%;
     }
@@ -656,7 +745,7 @@
     border: 2px solid transparent;
     border-radius: 50%;
     background: linear-gradient(#000, #000) padding-box,
-                linear-gradient(135deg, #00d4ff, #3b82f6, #06b6d4) border-box;
+        linear-gradient(135deg, #00d4ff, #3b82f6, #06b6d4) border-box;
     animation: spin 1s linear infinite;
     flex-shrink: 0;
     position: relative;
@@ -723,6 +812,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    /* Performance: skip rendering off-screen messages */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 600px;
 }
 
 /* K8: User message — RIGHT aligned with avatar */
@@ -765,6 +857,7 @@
         opacity: 0;
         transform: translateY(8px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -776,6 +869,7 @@
         opacity: 0;
         transform: translateX(20px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -787,6 +881,7 @@
         opacity: 0;
         transform: translateX(-20px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -969,12 +1064,12 @@
     display: table;
 }
 
-.code-body.with-line-numbers code > span {
+.code-body.with-line-numbers code>span {
     display: table-row;
     counter-increment: line;
 }
 
-.code-body.with-line-numbers code > span::before {
+.code-body.with-line-numbers code>span::before {
     content: counter(line);
     display: table-cell;
     text-align: right;
@@ -1114,6 +1209,23 @@
     color: #00d4ff;
     transform: scale(1.1);
     background: rgba(0, 212, 255, 0.1);
+}
+
+.input-icon.recording {
+    color: #ef4444;
+    animation: mic-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
 }
 
 .send-btn {
@@ -2185,7 +2297,8 @@
         transform: translateX(100%);
     }
 
-    60.01%, 100% {
+    60.01%,
+    100% {
         transform: translateX(-100%);
         opacity: 0;
     }
@@ -2558,31 +2671,8 @@
 }
 
 /* ==============================
-   RESPONSIVE
+   RESPONSIVE — handled in RESPONSIVE BREAKPOINTS section below
    ============================== */
-@media (max-width: 1024px) {
-    .mimi-outer-wrap {
-        padding: 12px 16px;
-    }
-
-    .mimi-workspace {
-        grid-template-columns: 1fr;
-    }
-
-    .panel-left,
-    .panel-right {
-        display: none;
-    }
-
-    .panel-center {
-        border-radius: 18px;
-        border: 1px solid rgba(0, 212, 255, 0.12);
-    }
-
-    .mimi-top-labels {
-        display: none;
-    }
-}
 
 /* ==============================
    PHASE 9: FULL FUNCTIONALITY CSS
@@ -3099,6 +3189,7 @@ kbd {
         opacity: 0;
         transform: translateY(-8px) scale(0.95);
     }
+
     to {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -3147,10 +3238,13 @@ kbd {
 }
 
 @keyframes pillPulse {
-    0%, 100% {
+
+    0%,
+    100% {
         border-color: rgba(0, 212, 255, 0.25);
         box-shadow: 0 0 16px rgba(0, 212, 255, 0.15);
     }
+
     50% {
         border-color: rgba(0, 212, 255, 0.40);
         box-shadow: 0 0 24px rgba(0, 212, 255, 0.25);
@@ -3419,6 +3513,7 @@ kbd {
     color: rgba(255, 255, 255, 0.25);
     flex-shrink: 0;
 }
+
 /* ==============================
    RESPONSIVE BREAKPOINTS
    ============================== */
@@ -3490,6 +3585,7 @@ kbd {
     .sidebar-toggle-btn {
         left: 12px;
         top: 12px;
+        z-index: 60;
     }
 
     /* Larger touch targets */
@@ -3725,9 +3821,15 @@ kbd {
    REDUCED MOTION — Accessibility
    ============================== */
 @media (prefers-reduced-motion: reduce) {
+
     .aurora-bar,
     .aurora-bar::after,
-    .glow-1, .glow-2, .glow-3, .glow-4, .glow-5, .glow-6,
+    .glow-1,
+    .glow-2,
+    .glow-3,
+    .glow-4,
+    .glow-5,
+    .glow-6,
     .welcome-orb,
     .pill-spinner,
     .status-pill::before,
@@ -3756,5 +3858,221 @@ kbd {
     .send-btn,
     .sandbox-tabs button::after {
         transition: none !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TYPING INDICATOR — animated dots during agent thinking
+   ═══════════════════════════════════════════════════════════ */
+
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 2px;
+}
+
+.typing-indicator span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(0, 212, 255, 0.6);
+    animation: typingBounce 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.typing-indicator span:nth-child(2) {
+    animation-delay: 0.16s;
+}
+
+.typing-indicator span:nth-child(3) {
+    animation-delay: 0.32s;
+}
+
+@keyframes typingBounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(0.6);
+        opacity: 0.4;
+    }
+
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ARTIFACT PANEL — Claude-style artifact preview experience
+   ═══════════════════════════════════════════════════════════ */
+
+/* Artifact badge in sandbox header */
+.artifact-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    animation: artifactGlow 2s ease-in-out infinite;
+}
+
+.artifact-badge:hover {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.35);
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.2);
+}
+
+@keyframes artifactGlow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 4px rgba(251, 191, 36, 0.1);
+    }
+
+    50% {
+        box-shadow: 0 0 12px rgba(251, 191, 36, 0.2);
+    }
+}
+
+/* Artifact chips in chat messages */
+.artifact-chips {
+    animation: artifactChipFadeIn 0.3s ease;
+}
+
+@keyframes artifactChipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TYPING CURSOR — Premium blinking block cursor during streaming
+   ═══════════════════════════════════════════════════════════ */
+
+.typing-cursor {
+    display: inline;
+    color: #00d4ff;
+    font-weight: 400;
+    animation: cursorBlink 1s step-end infinite;
+    font-size: 1em;
+    line-height: 1;
+    margin-left: 1px;
+    vertical-align: baseline;
+}
+
+@keyframes cursorBlink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MEMORY TOAST — "MIMI merkt sich..." notification
+   ═══════════════════════════════════════════════════════════ */
+
+.memory-toast-container {
+    position: fixed;
+    bottom: 90px;
+    right: 24px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+    max-width: 340px;
+}
+
+.memory-toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(10, 14, 28, 0.92);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(0, 212, 255, 0.18);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 16px rgba(0, 212, 255, 0.1);
+    pointer-events: auto;
+}
+
+.memory-toast-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    line-height: 1.2;
+}
+
+.memory-toast-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.memory-toast-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #00d4ff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.memory-toast-text {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.memory-toast-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px;
+    flex-shrink: 0;
+    transition: color 0.2s;
+}
+
+.memory-toast-close:hover {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Reduced motion for new Phase 4 animations */
+@media (prefers-reduced-motion: reduce) {
+
+    .typing-cursor,
+    .memory-toast {
+        animation: none !important;
     }
 }

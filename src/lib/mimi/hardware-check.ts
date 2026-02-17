@@ -15,7 +15,7 @@ export interface DeviceProfile {
     gpuMemory?: number;
 }
 
-// Modell-Konfigurationen - Best 2026 WebGPU Models
+// Modell-Konfigurationen – Best 2026 WebGPU Models (WebLLM 0.2.80)
 export const MODELS = {
     // PREMIUM: Phi-3.5-vision für Text + Bild (unified multimodal)
     VISION_FULL: {
@@ -33,12 +33,12 @@ export const MODELS = {
         description: "Bestes Reasoning & Code",
         isMultimodal: false
     },
-    // BALANCED: Qwen 2.5 1.5B — Bestes Deutsch + Code, effizient
+    // BALANCED: Qwen2.5-1.5B — Proven working fallback
     BALANCED: {
         id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
-        name: "Qwen 2.5 1.5B",
-        size: "1.0 GB",
-        description: "Bestes Deutsch + Code, schnell",
+        name: "Qwen2.5 1.5B",
+        size: "1.6 GB",
+        description: "Bewährtes kompaktes Modell, schnell & zuverlässig",
         isMultimodal: false
     },
     // FAST: Llama 3.2 für schnelle Antworten
@@ -116,9 +116,11 @@ export async function checkWebGPU(): Promise<DeviceProfile> {
         // Immer das BESTE Modell zuerst versuchen!
         // Nur fallback wenn Hardware es nicht schafft
 
-        const canRunVisionFull = maxBuffer >= 4_000_000_000; // 4GB+ für Phi-3.5-vision
+        // Vision needs model (3952MB) + KV cache + WebGPU overhead.
+        // 4GB is too tight → Cache API fails. Require 6GB for safe margin.
+        const canRunVisionFull = maxBuffer >= 6_000_000_000; // 6GB+ für Phi-3.5-vision (3952MB + KV + overhead)
         const canRunFull = maxBuffer >= 2_000_000_000;      // 2GB+ für Phi-4 Mini
-        const canRunBalanced = maxBuffer >= 800_000_000;     // 800MB+ für Qwen 2.5 1.5B
+        const canRunBalanced = maxBuffer >= 1_000_000_000;   // 1GB+ für Qwen2.5-1.5B
         const canRunSmall = maxBuffer >= 500_000_000;        // 500MB+ für Llama 3.2
 
         if (canRunVisionFull) {
@@ -146,12 +148,12 @@ export async function checkWebGPU(): Promise<DeviceProfile> {
         }
 
         if (canRunBalanced) {
-            // BALANCED: Qwen 2.5 1.5B — Bestes Deutsch + Code
+            // BALANCED: Qwen3-1.7B — Superior reasoning + thinking mode
             return {
                 supported: true,
                 model: MODELS.BALANCED.id,
                 modelSize: MODELS.BALANCED.size,
-                reason: `Mittlere GPU (${gpuMemoryGB.toFixed(1)} GB) — Qwen 2.5 für bestes Deutsch`,
+                reason: `Mittlere GPU (${gpuMemoryGB.toFixed(1)} GB) — Qwen3 für bestes Reasoning`,
                 isIOS: false,
                 gpuMemory: gpuMemoryGB
             };
@@ -204,18 +206,63 @@ export async function isModelCached(modelId: string): Promise<boolean> {
 /**
  * Estimiert verfügbaren Speicher
  */
-export async function getStorageEstimate(): Promise<{ available: number; used: number } | null> {
+export async function getStorageEstimate(): Promise<{ available: number; used: number; persisted: boolean; formatted: string } | null> {
     if (typeof navigator === 'undefined' || !navigator.storage?.estimate) {
         return null;
     }
 
     try {
         const estimate = await navigator.storage.estimate();
+        const available = estimate.quota || 0;
+        const used = estimate.usage || 0;
+        const persisted = await navigator.storage.persisted?.() || false;
+
+        const formatGB = (bytes: number) => (bytes / (1024 ** 3)).toFixed(1) + ' GB';
+
         return {
-            available: estimate.quota || 0,
-            used: estimate.usage || 0
+            available,
+            used,
+            persisted,
+            formatted: `${formatGB(used)} / ${formatGB(available)} (${persisted ? '✅ Persistent' : '⚠️ Temporär'})`
         };
     } catch {
         return null;
+    }
+}
+
+/**
+ * Requests persistent storage from the browser (Chrome: up to 60% of disk = ~600GB on 1TB SSD).
+ * Without this, the browser may evict cached models and data under storage pressure.
+ * Returns true if persistent storage was granted.
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+    if (typeof navigator === 'undefined' || !navigator.storage?.persist) {
+        return false;
+    }
+
+    try {
+        // Check if already persisted
+        const isPersisted = await navigator.storage.persisted();
+        if (isPersisted) {
+            console.log('[MIMI Storage] ✅ Persistent storage already granted');
+            return true;
+        }
+
+        // Request persistent storage (Chrome auto-grants for installed PWAs and frequently visited sites)
+        const granted = await navigator.storage.persist();
+        if (granted) {
+            console.log('[MIMI Storage] ✅ Persistent storage granted — data will not be evicted');
+            const estimate = await navigator.storage.estimate();
+            const quotaGB = ((estimate.quota || 0) / (1024 ** 3)).toFixed(1);
+            console.log(`[MIMI Storage] 💾 Available quota: ${quotaGB} GB`);
+        } else {
+            // L2 FIX: Downgrade to log — denial is expected behavior, not a warning
+            console.log('[MIMI Storage] ℹ️ Persistent storage not granted — data may be evicted under pressure');
+        }
+
+        return granted;
+    } catch (error) {
+        console.warn('[MIMI Storage] Failed to request persistent storage:', error);
+        return false;
     }
 }

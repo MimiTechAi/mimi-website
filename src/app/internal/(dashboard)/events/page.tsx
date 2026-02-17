@@ -3,7 +3,6 @@
 import { Button } from "@/components/ui/button";
 import { Calendar, Clock, MapPin, Users, CalendarDays } from "lucide-react";
 import { useState, useEffect } from "react";
-import { getCachedEvents } from "@/lib/cache";
 import { motion } from "framer-motion";
 import SpotlightCard from "@/components/SpotlightCard";
 
@@ -48,9 +47,12 @@ export default function EventsPage() {
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        const cachedEvents = await getCachedEvents();
-        if (cachedEvents) {
-          setEvents(cachedEvents);
+        const res = await fetch('/api/internal/events');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.events) {
+            setEvents(data.events);
+          }
         }
       } catch (error) {
         console.error("Fehler beim Laden der Veranstaltungen:", error);

@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BookOpen, Clock, Award, Play, Search, Star, Users, Download, GraduationCap } from "lucide-react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { getCachedTrainings } from "@/lib/cache";
 import { motion } from "framer-motion";
 import SpotlightCard from "@/components/SpotlightCard";
 
@@ -44,8 +43,9 @@ export default function TrainingPage() {
       try {
         setLoading(true);
 
-        // Abrufen der gecachten Schulungsdaten
-        const data = await getCachedTrainings();
+        // Fetch training data via API (client-safe)
+        const res = await fetch('/api/internal/training');
+        const data = res.ok ? await res.json() : null;
         if (data && data.courses) {
           setCourses(data.courses);
           setFilteredCourses(data.courses);

@@ -179,7 +179,11 @@ class ChatHistoryService {
         const summaries: ConversationSummary[] = [];
 
         try {
-            for await (const [name, handle] of (this.historyHandle as any).entries()) {
+            // B-10: Typed OPFS directory iteration (entries() is not in base TS typings)
+            type AsyncIterableDirectory = FileSystemDirectoryHandle & {
+                entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+            };
+            for await (const [name, handle] of (this.historyHandle as AsyncIterableDirectory).entries()) {
                 if (handle.kind !== 'file' || !name.endsWith('.json')) continue;
 
                 try {

@@ -1,0 +1,2 @@
+# PWA Icon placeholder - needs to be created
+# For now, create a simple colored square as icon-192.png

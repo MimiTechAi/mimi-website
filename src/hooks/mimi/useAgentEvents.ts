@@ -318,6 +318,7 @@ export function useAgentEvents() {
                         isThinking: true,
                         thinkingContent: ''
                     }));
+                    startTimer();
                     break;
                 }
 
@@ -331,10 +332,16 @@ export function useAgentEvents() {
                 }
 
                 case 'THINKING_END': {
-                    setState(prev => ({
-                        ...prev,
-                        isThinking: false
-                    }));
+                    setState(prev => {
+                        // Stop timer if no active plan (simple chat request)
+                        if (!prev.activePlan) {
+                            stopTimer();
+                        }
+                        return {
+                            ...prev,
+                            isThinking: false
+                        };
+                    });
                     break;
                 }
 

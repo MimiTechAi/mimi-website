@@ -14,99 +14,51 @@ export interface FileGeneratorOptions {
 }
 
 /**
- * Generiert PDF aus Text/Markdown
+ * Generiert PDF aus Text/Markdown über Browser-Print (keine jspdf-Dependency)
+ * Nutzt eine versteckte Iframe + window.print() → "Als PDF speichern"
  */
 export async function generatePDF(
     content: string,
     filename: string,
     options?: FileGeneratorOptions
 ): Promise<Blob> {
-    // Dynamischer Import
-    const jsPDF = (await import('jspdf')).default;
-
-    const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-    });
-
     const margins = options?.margins || { top: 20, right: 20, bottom: 20, left: 20 };
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const maxWidth = pageWidth - margins.left - margins.right;
 
-    // Titel
-    if (options?.title) {
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text(options.title, margins.left, margins.top);
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'normal');
-    }
+    // Markdown-ähnliche Formatierung → HTML
+    const htmlContent = content
+        .split('\n')
+        .map(line => {
+            if (line.startsWith('# ')) return `<h1>${line.substring(2)}</h1>`;
+            if (line.startsWith('## ')) return `<h2>${line.substring(3)}</h2>`;
+            if (line.startsWith('### ')) return `<h3>${line.substring(4)}</h3>`;
+            if (line.startsWith('- ') || line.startsWith('* ')) return `<li>${line.substring(2)}</li>`;
+            if (line.trim() === '') return '<br/>';
+            return `<p>${line}</p>`;
+        })
+        .join('\n');
 
-    // Content parsen und formatieren
-    const lines = content.split('\n');
-    let y = options?.title ? margins.top + 15 : margins.top;
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${options?.title || filename}</title>
+<style>
+  @page { margin: ${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #1a1a1a; max-width: 170mm; margin: 0 auto; }
+  h1 { font-size: 18pt; margin-bottom: 8px; }
+  h2 { font-size: 14pt; margin-bottom: 6px; }
+  h3 { font-size: 12pt; margin-bottom: 4px; }
+  li { margin-left: 20px; }
+  p { margin: 2px 0; }
+  .footer { margin-top: 24px; font-size: 9pt; color: #888; font-style: italic; }
+</style>
+</head><body>
+${options?.title ? `<h1>${options.title}</h1>` : ''}
+${htmlContent}
+${options?.author ? `<div class="footer">Erstellt von ${options.author}</div>` : ''}
+</body></html>`;
 
-    for (const line of lines) {
-        // Neue Seite wenn nötig
-        if (y > pageHeight - margins.bottom) {
-            doc.addPage();
-            y = margins.top;
-        }
-
-        // Markdown-ähnliche Formatierung
-        if (line.startsWith('# ')) {
-            doc.setFontSize(16);
-            doc.setFont('helvetica', 'bold');
-            doc.text(line.substring(2), margins.left, y);
-            y += 8;
-        } else if (line.startsWith('## ')) {
-            doc.setFontSize(14);
-            doc.setFont('helvetica', 'bold');
-            doc.text(line.substring(3), margins.left, y);
-            y += 7;
-        } else if (line.startsWith('### ')) {
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text(line.substring(4), margins.left, y);
-            y += 6;
-        } else if (line.startsWith('- ') || line.startsWith('* ')) {
-            doc.setFontSize(11);
-            doc.setFont('helvetica', 'normal');
-            doc.text('• ' + line.substring(2), margins.left + 5, y);
-            y += 5;
-        } else if (line.trim() === '') {
-            y += 3;
-        } else {
-            doc.setFontSize(11);
-            doc.setFont('helvetica', 'normal');
-
-            // Text umbrechen
-            const splitText = doc.splitTextToSize(line, maxWidth);
-            for (const textLine of splitText as string[]) {
-                if (y > pageHeight - margins.bottom) {
-                    doc.addPage();
-                    y = margins.top;
-                }
-                doc.text(textLine, margins.left, y);
-                y += 5;
-            }
-        }
-    }
-
-    // Autor/Footer
-    if (options?.author) {
-        doc.setFontSize(9);
-        doc.setTextColor(128);
-        doc.text(
-            `Erstellt von ${options.author}`,
-            margins.left,
-            pageHeight - 10
-        );
-    }
-
-    return doc.output('blob');
+    // Return as HTML Blob (browser PDF via print dialog)
+    return new Blob([html], { type: 'text/html' });
 }
 
 /**

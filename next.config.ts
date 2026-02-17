@@ -26,6 +26,17 @@ const nextConfig = {
     ],
   },
   turbopack: {},
+  serverExternalPackages: [
+    'jspdf',
+    'canvg',
+    'html2canvas',
+    'stackblur-canvas',
+    'exceljs',
+    'docx',
+    '@xenova/transformers',
+    'onnxruntime-web',
+    'oauth',
+  ],
   poweredByHeader: false,
   reactStrictMode: true,
 
@@ -50,6 +61,7 @@ const nextConfig = {
         path: false,
         crypto: false,
         perf_hooks: false,
+        oauth: false,
       };
 
       // Ensure process.env is available
@@ -143,10 +155,10 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://va.vercel-scripts.com",
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://va.vercel-scripts.com",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
               "img-src 'self' data: blob: https://slelguoygbfzlpylpxfs.supabase.co https://www.google-analytics.com",
-              "font-src 'self' https://fonts.gstatic.com",
+              "font-src 'self' data: https://fonts.gstatic.com",
               "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://cas-bridge.xethub.hf.co https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com https://raw.githubusercontent.com",
               "worker-src 'self' blob:",
               "child-src 'self' blob:",

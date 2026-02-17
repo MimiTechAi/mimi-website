@@ -8,7 +8,7 @@
  */
 
 import { getVisionEngine } from './vision-engine';
-import { getPiperTTS } from './piper-tts';
+// piper-tts: dynamically imported to avoid pulling onnxruntime-web into the bundle
 
 // Geschätzte Modellgrößen in MB
 const MODEL_SIZES = {
@@ -23,10 +23,10 @@ const MODEL_SIZES = {
     PYODIDE: 200,         // Python Runtime
 } as const;
 
-// Schwellenwerte
+// Schwellenwerte (angepasst für 16GB Desktop mit großen Vision-Modellen)
 const MEMORY_THRESHOLDS = {
-    WARNING: 2500,        // MB - Warnung ausgeben
-    CRITICAL: 3000,       // MB - Aggressive Entladung
+    WARNING: 4500,        // MB - Warnung ausgeben (Phi-3.5 Vision = ~4200MB)
+    CRITICAL: 5000,       // MB - Aggressive Entladung (LLM + Vision + TTS)
     MOBILE_CRITICAL: 1500 // MB - Mobiles Limit
 } as const;
 
@@ -143,7 +143,7 @@ class MemoryManager {
             vision.dispose();
             this.unregisterModel('vision');
             console.log('[MemoryManager] Vision-Modell entladen');
-        } catch (e) {
+        } catch (e: unknown) {
             console.warn('[MemoryManager] Fehler beim Entladen von Vision:', e);
         }
     }
@@ -155,11 +155,11 @@ class MemoryManager {
         if (!this.activeModels.has('tts')) return;
 
         try {
+            const { getPiperTTS } = await import('./piper-tts');
             const tts = getPiperTTS();
             await tts.dispose();
             this.unregisterModel('tts');
-            console.log('[MemoryManager] TTS-Modell entladen');
-        } catch (e) {
+        } catch (e: unknown) {
             console.warn('[MemoryManager] Fehler beim Entladen von TTS:', e);
         }
     }

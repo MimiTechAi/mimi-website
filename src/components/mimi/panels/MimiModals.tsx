@@ -13,6 +13,7 @@
 
 import { useMimiAgentContext } from "../MimiAgentContext";
 import { getChatHistory } from "@/lib/mimi/chat-history";
+import { Trash2 } from "lucide-react";
 
 export function MimiModals() {
     const ctx = useMimiAgentContext();
@@ -23,11 +24,11 @@ export function MimiModals() {
             {ctx.confirmDeleteId && (
                 <div className="modal-overlay" onClick={() => ctx.setConfirmDeleteId(null)}>
                     <div className="modal-card" onClick={e => e.stopPropagation()}>
-                        <h3>Konversation loeschen?</h3>
-                        <p>Diese Aktion kann nicht rueckgaengig gemacht werden.</p>
+                        <h3>Konversation löschen?</h3>
+                        <p>Diese Aktion kann nicht rückgängig gemacht werden.</p>
                         <div className="modal-actions">
                             <button className="modal-btn cancel" onClick={() => ctx.setConfirmDeleteId(null)}>Abbrechen</button>
-                            <button className="modal-btn danger" onClick={() => ctx.handleDeleteConversation(ctx.confirmDeleteId!)}>Loeschen</button>
+                            <button className="modal-btn danger" onClick={() => ctx.handleDeleteConversation(ctx.confirmDeleteId!)}>Löschen</button>
                         </div>
                     </div>
                 </div>
@@ -68,20 +69,20 @@ export function MimiModals() {
                                         }
                                         // Reset via new conversation
                                         ctx.handleNewConversation();
-                                        ctx.addToast("Alle Konversationen geloescht");
+                                        ctx.addToast("Alle Konversationen gelöscht");
                                     } catch {
-                                        ctx.addToast("Fehler beim Loeschen");
+                                        ctx.addToast("Fehler beim Löschen");
                                     }
                                 }}
                             >
-                                🗑️ Alle Konversationen loeschen
+                                <Trash2 className="w-3.5 h-3.5" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> Alle Konversationen löschen
                             </button>
                         </div>
                         <div className="settings-section">
-                            <h4>Tastenkuerzel</h4>
-                            <div className="settings-row"><span>Neuer Thread</span><kbd>⌘N</kbd></div>
+                            <h4>Tastenkürzel</h4>
+                            <div className="settings-row"><span>Neues Gespräch</span><kbd>⌘N</kbd></div>
                             <div className="settings-row"><span>Suche fokussieren</span><kbd>⌘K</kbd></div>
-                            <div className="settings-row"><span>Schliessen / Abbrechen</span><kbd>Esc</kbd></div>
+                            <div className="settings-row"><span>Schließen / Abbrechen</span><kbd>Esc</kbd></div>
                         </div>
                     </div>
                 </div>

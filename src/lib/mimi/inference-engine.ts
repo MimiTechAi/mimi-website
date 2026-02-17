@@ -13,10 +13,11 @@ import { searchDocuments, loadDocuments, type PDFDocument, type PDFChunk, type P
 import { getVectorStore, type SearchResult as VectorSearchResult } from './vector-store';
 import { getOrchestrator, type AgentOrchestrator } from './agent-orchestrator';
 import { getMemoryManager, type MemoryManager } from './memory-manager';
-import { getToolDescriptionsForPrompt, parseToolCalls, executeToolCall } from './tool-definitions';
+import { getToolDescriptionsForPrompt, parseToolCalls, executeToolCall, type ToolExecutionContext } from './tool-definitions';
 import { getTaskPlanner, type TaskPlanner, type TaskPlan } from './task-planner';
 import { AgentEvents } from './agent-events';
 import { getAgentMemory, getContextWindowManager, ResultPipeline, type AgentMemoryService, type ContextWindowManager } from './agent-memory';
+import { ImageStore } from './image-store';
 
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
@@ -27,21 +28,26 @@ const SYSTEM_PROMPT = `Du bist MIMI, ein leistungsstarker lokaler KI-Agent von M
 
 ## REGELN (IN DIESER REIHENFOLGE!)
 
-1. **DIREKT ANTWORTEN:** Bei Fragen, Grüßen, Erklärungen, Meinungen und Wissen antworte SOFORT in normalem Deutsch. Kein JSON, kein Tool, kein Code-Block — einfach eine hilfreiche Antwort schreiben.
+1. **DIREKT ANTWORTEN:** Bei Fragen, Listen, Erklärungen, Aufgaben, Meinungen und Wissen antworte SOFORT in normalem Deutsch mit Markdown. Kein JSON, kein Tool, kein Code-Block — einfach eine hilfreiche Antwort schreiben.
 
-2. **TOOLS NUR BEI BEDARF:** Nutze Tools NUR wenn eine Aufgabe tatsächlich Berechnung, Code-Ausführung, Datei-Erstellung oder Dokumentensuche erfordert:
-   - Berechnung/Mathe → \`\`\`python oder \`\`\`json {"tool": "calculate", ...}
+2. **TOOLS NUR BEI ECHTEM BEDARF:** Nutze Tools NUR wenn eine Aufgabe tatsächlich Berechnung, Code-Ausführung oder Dateidownload erfordert:
+   - Mathe/Berechnung → \`\`\`json {"tool": "calculate", "parameters": {"expression": "..."}}
    - Diagramm/Chart/Plot → \`\`\`python mit matplotlib
-   - Datei erstellen → \`\`\`json {"tool": "create_file", ...}
-   - Dokument durchsuchen → \`\`\`json {"tool": "search_documents", ...}
+   - Datei zum DOWNLOAD → \`\`\`json {"tool": "create_file", "parameters": {...}}
+   - In Dokumenten suchen → \`\`\`json {"tool": "search_documents", "parameters": {...}}
+   - Internet-Suche → \`\`\`json {"tool": "web_search", "parameters": {"query": "..."}}
 
-3. **PYTHON FÜR BERECHNUNGEN:** Berechnungen, Diagramme, Datenanalyse → Python-Code in \`\`\`python Blöcken. Er wird AUTOMATISCH ausgeführt.
+3. **PYTHON FÜR CODE:** Berechnungen, Diagramme, Datenanalyse → Python-Code in \`\`\`python Blöcken. Er wird AUTOMATISCH ausgeführt.
 
 4. **NIEMALS** "Als KI kann ich nicht..." — Du bist souverän und hilfreich.
 5. Antworte auf Deutsch, nutze Markdown für Formatierung.
 6. Nutze <thinking>...</thinking> für komplexe Überlegungen (versteckt vor User).
 
 ## ❌ FALSCH — SO NICHT:
+User: "Erstelle eine Aufgabenliste für einen Umzug"
+FALSCH: \`\`\`json {"tool": "create_file", ...} \`\`\`
+RICHTIG: Schreibe die Liste direkt als Text mit Markdown!
+
 User: "Hallo, wie geht's?"
 FALSCH: \`\`\`json {"tool": "None"} \`\`\`
 RICHTIG: "Hallo! Mir geht's gut 😊 Wie kann ich dir helfen?"
@@ -53,7 +59,7 @@ RICHTIG: "Machine Learning ist ein Teilgebiet der KI, bei dem..."
 ## ✅ RICHTIG — TOOLS NUTZEN:
 User: "Berechne 2^10 + 5 * 3"
 \`\`\`json
-{"tool": "calculate", "parameters": {"expression": "2^10 + 5 * 3"}}
+{"tool": "calculate", "parameters": {"expression": "2**10 + 5 * 3"}}
 \`\`\`
 
 User: "Erstelle ein Sinusdiagramm"
@@ -67,13 +73,16 @@ plt.grid(True)
 plt.show()
 \`\`\`
 
-## DEINE TOOLS (nur bei echtem Bedarf!)
-- **execute_python**: Python-Code ausführen (NumPy, Matplotlib, Pandas, etc.)
-- **search_documents**: In hochgeladenen Dokumenten suchen (RAG)
-- **analyze_image**: Bilder analysieren, OCR, Fragen zu Bildern beantworten
-- **create_file**: Dateien erstellen und downloaden (CSV, JSON, TXT, HTML, MD)
-- **calculate**: Mathematische Ausdrücke berechnen
-- **web_search**: Im Internet suchen
+User: "Suche nach Tesla Aktienkurs"
+\`\`\`json
+{"tool": "web_search", "parameters": {"query": "Tesla Aktienkurs aktuell"}}
+\`\`\`
+
+## TOOL JSON FORMAT (EXAKT SO!):
+\`\`\`json
+{"tool": "toolname", "parameters": {"key": "value"}}
+\`\`\`
+❌ NICHT: {"tools": [...]} oder [{"tool": ...}] — nur das Format oben!
 
 ## VISION
 Wenn ein Bild hochgeladen wurde, steht der Bild-Kontext (🖼️) in der Nachricht. Beschreibe, analysiere oder reproduziere Bilder als Python-Code.
@@ -129,30 +138,29 @@ export type AgentStatus =
  */
 /**
  * Tool context passed from the UI layer so the engine can execute tools
+ * Re-exported from tool-definitions for backward compatibility
  */
-export interface ToolContext {
-    executePython?: (code: string) => Promise<string>;
-    searchDocuments?: (query: string, limit?: number) => Promise<any[]>;
-    analyzeImage?: (question: string) => Promise<any>;
-    createFile?: (type: string, content: string, filename?: string) => Promise<any>;
-}
+export type ToolContext = ToolExecutionContext;
 
 export class MimiEngine {
     private worker: Worker | null = null;
     private isReady = false;
+    private _isInitializing = false;
     private currentModel: string | null = null;
     private messageHandlers: Map<string, (data: any) => void> = new Map();
+    private warmupComplete: Promise<void> = Promise.resolve(); // Gate: resolved when warm-up done
+    private isFirstGeneration = true; // First generation gets extended timeouts for shader JIT
     private messageId = 0;
     private statusCallback: StatusCallback | null = null;
-    private agentOrchestrator: AgentOrchestrator;
-    private memoryManager: MemoryManager;
+    private agentOrchestrator?: AgentOrchestrator;
+    private memoryManager?: MemoryManager;
     private isGenerating = false;
     private toolContext: ToolContext = {};
     private static MAX_TOOL_ITERATIONS = 10;
-    private taskPlanner: TaskPlanner;
+    private taskPlanner?: TaskPlanner;
     // Phase 4: Intelligence improvements
-    private agentMemory: AgentMemoryService;
-    private contextWindowManager: ContextWindowManager;
+    private agentMemory?: AgentMemoryService;
+    private contextWindowManager?: ContextWindowManager;
 
     constructor() {
         if (typeof window !== 'undefined') {
@@ -164,11 +172,7 @@ export class MimiEngine {
             // Initialize memory (async, non-blocking)
             this.agentMemory.initialize().catch(() => { });
         } else {
-            this.agentOrchestrator = null as any;
-            this.memoryManager = null as any;
-            this.taskPlanner = null as any;
-            this.agentMemory = null as any;
-            this.contextWindowManager = null as any;
+            // Server-side: properties remain undefined (optional)
         }
     }
 
@@ -178,7 +182,7 @@ export class MimiEngine {
      */
     setToolContext(context: ToolContext): void {
         this.toolContext = context;
-        console.log('[MimiEngine] ✅ Tool context set:', Object.keys(context).filter(k => !!(context as any)[k]));
+        console.log('[MimiEngine] ✅ Tool context set:', Object.keys(context).filter(k => !!(context as Record<string, unknown>)[k]));
     }
 
     /**
@@ -201,6 +205,13 @@ export class MimiEngine {
             return;
         }
 
+        if (this._isInitializing) {
+            console.warn('[MIMI] Init already in progress, skipping duplicate call');
+            return;
+        }
+
+        this._isInitializing = true;
+
         this.worker = new Worker(
             new URL('./inference-worker.ts', import.meta.url),
             { type: 'module' }
@@ -213,8 +224,15 @@ export class MimiEngine {
             }
 
             const timeout = setTimeout(() => {
+                // CRITICAL: Clean up before rejecting so fallback chain can retry
+                this._isInitializing = false;
+                if (this.worker) {
+                    this.worker.terminate();
+                    this.worker = null;
+                }
+                this.isReady = false;
                 reject(new Error("Timeout: Modell-Initialisierung dauert zu lange"));
-            }, 10 * 60 * 1000);
+            }, 5 * 60 * 1000); // 5 min — first download needs ~4min for 2.2GB models
 
             this.worker.onmessage = (e) => {
                 const { type, payload, id } = e.data;
@@ -239,29 +257,40 @@ export class MimiEngine {
                             const llmKey = modelId.toLowerCase().includes('vision')
                                 ? 'llm-phi35-vision'
                                 : modelId.includes('Phi-4') ? 'llm-phi4'
-                                    : modelId.includes('Qwen2.5-1.5B') ? 'llm-qwen25'
-                                        : modelId.includes('Phi-3.5') ? 'llm-phi35'
-                                            : modelId.includes('Qwen') ? 'llm-qwen'
-                                                : modelId.includes('Llama') ? 'llm-llama'
-                                                    : 'llm-phi35';
+                                    : modelId.includes('Qwen3') ? 'llm-qwen3'
+                                        : modelId.includes('Qwen2.5-1.5B') ? 'llm-qwen25'
+                                            : modelId.includes('Phi-3.5') ? 'llm-phi35'
+                                                : modelId.includes('Qwen') ? 'llm-qwen'
+                                                    : modelId.includes('Llama') ? 'llm-llama'
+                                                        : 'llm-phi35';
                             mm.registerModel(llmKey);
                             console.log(`[MIMI] 🧠 Memory Manager: LLM registriert als '${llmKey}'`);
-                        } catch (e) {
+                        } catch (e: unknown) {
                             console.warn('[MIMI] Memory Manager Registrierung fehlgeschlagen:', e);
                         }
 
+                        // First generation gets extended timeouts for JIT shader compilation.
+                        // We no longer send a warm-up GENERATE because interruptGenerate() is async
+                        // and doesn't reliably free the worker, causing WebGPU contention on real messages.
+                        this.isFirstGeneration = true;
+                        this.warmupComplete = Promise.resolve();
+                        console.log('[MIMI] ⚡ Ready — first generation will use extended timeouts for shader JIT');
+
                         onProgress({ progress: 100, text: "MIMI ist bereit!" });
+                        this._isInitializing = false;
                         resolve();
                         break;
 
                     case "ERROR":
                         clearTimeout(timeout);
+                        this._isInitializing = false;
                         reject(new Error(payload.message));
                         break;
 
                     case "TOKEN":
                     case "DONE":
                     case "STATUS":
+                    case "INTERRUPTED":
                         const handler = this.messageHandlers.get(id);
                         if (handler) handler({ type, payload });
                         break;
@@ -270,6 +299,7 @@ export class MimiEngine {
 
             this.worker.onerror = (error) => {
                 clearTimeout(timeout);
+                this._isInitializing = false;
                 reject(new Error(`Worker-Fehler: ${error.message}`));
             };
 
@@ -278,6 +308,55 @@ export class MimiEngine {
                 payload: { modelId }
             });
         });
+    }
+
+    /**
+     * Interrupts in-flight generation on the worker (non-destructive).
+     * Sends INTERRUPT message and waits for acknowledgment or timeout.
+     */
+    private async interruptWorker(): Promise<void> {
+        if (!this.worker) return;
+        return new Promise<void>((resolve) => {
+            const id = `interrupt_${++this.messageId}`;
+            const timeout = setTimeout(() => {
+                this.messageHandlers.delete(id);
+                resolve();
+            }, 3000); // Max 3s wait for interrupt ack
+            this.messageHandlers.set(id, (data) => {
+                if (data.type === 'INTERRUPTED') {
+                    clearTimeout(timeout);
+                    this.messageHandlers.delete(id);
+                    resolve();
+                }
+            });
+            this.worker!.postMessage({ type: 'INTERRUPT', id });
+        });
+    }
+
+    /**
+     * Blacklist a model that failed to generate on this GPU.
+     * Stored in localStorage so it's skipped on next page load.
+     */
+    static blacklistModel(modelId: string): void {
+        try {
+            const key = 'mimi_blacklisted_models';
+            const existing = JSON.parse(localStorage.getItem(key) || '[]') as string[];
+            if (!existing.includes(modelId)) {
+                existing.push(modelId);
+                localStorage.setItem(key, JSON.stringify(existing));
+                console.log(`[MIMI] 🚫 Model blacklisted for this device: ${modelId}`);
+            }
+        } catch { /* localStorage unavailable */ }
+    }
+
+    /**
+     * Check if a model was previously blacklisted on this device.
+     */
+    static isModelBlacklisted(modelId: string): boolean {
+        try {
+            const existing = JSON.parse(localStorage.getItem('mimi_blacklisted_models') || '[]') as string[];
+            return existing.includes(modelId);
+        } catch { return false; }
     }
 
     /**
@@ -426,7 +505,7 @@ export class MimiEngine {
                             context += `> ${result.text.slice(0, 500)}...\n\n`;
                         }
                     }
-                } catch (e) {
+                } catch (e: unknown) {
                     console.log('[RAG] Hybrid search Fehler:', e);
                 }
             }
@@ -445,7 +524,7 @@ export class MimiEngine {
                             context += `> ${result.chunk.text.slice(0, 400)}...\n\n`;
                         }
                     }
-                } catch (e) {
+                } catch (e: unknown) {
                     console.log('[RAG] Keyword-Suche Fehler:', e);
                 }
             }
@@ -469,7 +548,7 @@ export class MimiEngine {
                         }
                         context += '\n---\n\n*Du hast Zugriff auf diese Dokumente. Nutze den Inhalt für deine Antwort.*\n\n';
                     }
-                } catch (e) {
+                } catch (e: unknown) {
                     console.log('[RAG] Dokumente laden Fehler:', e);
                 }
             }
@@ -490,11 +569,16 @@ export class MimiEngine {
 
     // [REMOVED] generateWithRAG + generateAgent — dead code, generate() handles everything
 
-
     /**
      * Internal: Single-shot LLM generation (no tool loop).
      * Streams tokens, filters <thinking> blocks, yields visible text.
      * Returns the full assembled response.
+     * 
+     * SAFETY GUARDS:
+     * - Max thinking buffer: auto-closes unclosed <thinking> blocks after 2000 chars
+     * - Stall detection: breaks after 15s without tokens (GPU can be slow on first run)
+     * - Max generation timeout: 45s total safeguard
+     * - Worker ERROR handling: catches worker-side errors during generation
      */
     private async *singleGeneration(
         fullMessages: ChatMessage[],
@@ -504,50 +588,91 @@ export class MimiEngine {
 
         const tokenQueue: string[] = [];
         let isDone = false;
+        let generationError: string | null = null;
         let isInThinking = false;
         let thinkingBuffer = '';
         let fullResponse = '';
+
+        // Safety constants
+        const MAX_THINKING_BUFFER = 2000; // Auto-close thinking after this many chars
+        // First generation needs extra tolerance for JIT shader compilation
+        const isFirst = this.isFirstGeneration;
+        const MAX_STALL_MS = isFirst ? 45000 : 15000;  // First gen needs shader warmup
+        const MAX_GENERATION_MS = isFirst ? 90000 : 45000;
+        if (isFirst) {
+            console.log(`[MIMI] ℹ️ First generation: stall=${MAX_STALL_MS / 1000}s, max=${MAX_GENERATION_MS / 1000}s (shader JIT)`);
+            this.isFirstGeneration = false;
+        }
 
         this.messageHandlers.set(id, (data) => {
             if (data.type === "TOKEN") {
                 tokenQueue.push(data.payload);
             } else if (data.type === "DONE") {
                 isDone = true;
+            } else if (data.type === "ERROR") {
+                generationError = data.payload?.message || 'Worker generation error';
+                console.error('[MIMI] ❌ Worker error during generation:', generationError);
+                isDone = true; // Break the polling loop
             }
         });
+
+        // CRITICAL: Wait for WebGPU warm-up to finish before sending real generation
+        // Without this, the worker is still busy with warm-up and drops our tokens
+        await this.warmupComplete;
 
         this.worker!.postMessage({
             type: "GENERATE",
             id,
             payload: {
                 messages: fullMessages,
-                temperature: options?.temperature ?? 0.7,
-                maxTokens: options?.maxTokens ?? 4096
+                temperature: options?.temperature ?? 0.6,
+                maxTokens: options?.maxTokens ?? 1024
             }
         });
 
         try {
             let outputBuffer = '';
             let pendingPartialTag = '';
+            let lastTokenTime = Date.now();
+            const generationStart = Date.now();
 
             while (!isDone || tokenQueue.length > 0) {
+                // Safety: max generation timeout
+                if (Date.now() - generationStart > MAX_GENERATION_MS) {
+                    console.warn(`[MIMI] ⚠️ Generation timeout (${MAX_GENERATION_MS / 1000}s), forcing exit`);
+                    if (isInThinking) {
+                        // Flush thinking buffer as visible text since we're timing out
+                        isInThinking = false;
+                        this.updateStatus('generating');
+                    }
+                    break;
+                }
+
                 if (tokenQueue.length > 0) {
+                    lastTokenTime = Date.now();
                     const token = tokenQueue.shift()!;
                     outputBuffer += token;
 
                     // Chunk-resilient <thinking> tag detection
-                    const potentialOpenTag = outputBuffer.match(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/);
-                    if (potentialOpenTag && !isInThinking) {
-                        pendingPartialTag = potentialOpenTag[0];
-                        outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
+                    // Only check for partial tags if we're NOT already inside thinking
+                    if (!isInThinking) {
+                        const potentialOpenTag = outputBuffer.match(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?\s*$/);
+                        if (potentialOpenTag) {
+                            pendingPartialTag = potentialOpenTag[0];
+                            outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
+                        }
                     }
-                    const potentialCloseTag = outputBuffer.match(/<\/t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/);
-                    if (potentialCloseTag && isInThinking) {
-                        pendingPartialTag = potentialCloseTag[0];
-                        outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
+                    if (isInThinking) {
+                        const potentialCloseTag = outputBuffer.match(/<\/t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?\s*$/);
+                        if (potentialCloseTag) {
+                            pendingPartialTag = potentialCloseTag[0];
+                            outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
+                        }
                     }
+
+                    // Re-attach pending partial tag for re-evaluation
                     if (pendingPartialTag) {
-                        outputBuffer = pendingPartialTag + outputBuffer;
+                        outputBuffer += pendingPartialTag;
                         pendingPartialTag = '';
                     }
 
@@ -576,6 +701,13 @@ export class MimiEngine {
                             }
                             thinkingBuffer += outputBuffer;
                             outputBuffer = '';
+
+                            // SAFETY: Auto-close thinking if buffer exceeds max
+                            if (thinkingBuffer.length > MAX_THINKING_BUFFER) {
+                                console.warn(`[MIMI] ⚠️ Thinking buffer exceeded ${MAX_THINKING_BUFFER} chars, auto-closing`);
+                                isInThinking = false;
+                                this.updateStatus('generating');
+                            }
                             break;
                         } else {
                             break;
@@ -596,10 +728,20 @@ export class MimiEngine {
                         outputBuffer = '';
                     }
                 } else {
+                    // Safety: stall detection — no tokens for too long
+                    if (Date.now() - lastTokenTime > MAX_STALL_MS && !isDone) {
+                        console.warn(`[MIMI] ⚠️ Token stall detected (${MAX_STALL_MS / 1000}s), forcing exit`);
+                        if (isInThinking) {
+                            isInThinking = false;
+                            this.updateStatus('generating');
+                        }
+                        break;
+                    }
                     await new Promise(resolve => setTimeout(resolve, 10));
                 }
             }
 
+            // Flush remaining buffer
             if (outputBuffer && !isInThinking) {
                 fullResponse += outputBuffer;
                 yield outputBuffer;
@@ -608,8 +750,19 @@ export class MimiEngine {
                 fullResponse += pendingPartialTag;
                 yield pendingPartialTag;
             }
+
+            // Safety: if we're still in thinking mode at the end, the model never closed it
+            if (isInThinking && thinkingBuffer) {
+                console.warn('[MIMI] ⚠️ Unclosed <thinking> block at end of generation, discarding thinking content');
+                isInThinking = false;
+            }
         } finally {
             this.messageHandlers.delete(id);
+        }
+
+        // C1 FIX: If worker sent an ERROR during generation, propagate it
+        if (generationError) {
+            throw new Error(`Generation failed: ${generationError}`);
         }
 
         return fullResponse;
@@ -636,324 +789,398 @@ export class MimiEngine {
 
         this.isGenerating = true;
 
-        // AUTO-RAG: Enrich last user message with document context
-        let enrichedMessages = [...messages];
-        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-
-        if (lastUserMessage) {
-            this.updateStatus('analyzing');
-            const ragContext = await this.enrichWithRAG(lastUserMessage.content);
-            if (ragContext) {
-                console.log('[MIMI] 📚 RAG-Kontext gefunden');
-                enrichedMessages = messages.map(m =>
-                    m === lastUserMessage
-                        ? { ...m, content: `${ragContext}\n\n**Frage:** ${m.content}` }
-                        : m
-                );
-            }
-
-            // IMAGE CONTEXT: Inject vision analysis so LLM knows about the uploaded image
-            const imageCtx = this.agentOrchestrator?.getContext?.()?.imageContext;
-            if (imageCtx) {
-                console.log('[MIMI] 🖼️ Bild-Kontext gefunden');
-                const currentLastMsg = enrichedMessages.filter(m => m.role === 'user').pop();
-                if (currentLastMsg) {
-                    // If we have a multimodal model AND an uploaded image, pass the raw image data
-                    // The inference worker will convert it to image_url content blocks
-                    const uploadedImage = typeof window !== 'undefined' ? (window as any).__mimiUploadedImage : null;
-                    const isVision = this.isMultimodalModel();
-
-                    if (isVision && uploadedImage) {
-                        // MULTIMODAL: Pass raw base64 image — worker converts to image_url block
-                        console.log('[MIMI] 🖼️ Multimodal: Sende Bild direkt an VLM');
-                        enrichedMessages = enrichedMessages.map(m =>
-                            m === currentLastMsg
-                                ? { ...m, content: `${uploadedImage} ${m.content}` }
-                                : m
-                        );
-                    } else {
-                        // TEXT-ONLY: Inject description as text context
-                        enrichedMessages = enrichedMessages.map(m =>
-                            m === currentLastMsg
-                                ? { ...m, content: `🖼️ **Aktuelles Bild:**\n${imageCtx}\n\n${m.content}` }
-                                : m
-                        );
-                    }
-                }
-            }
-        }
-
-        // Agent classification
-        let primaryAgent = 'general';
         try {
-            const classification = await this.agentOrchestrator.classifyTask(
-                lastUserMessage?.content || ''
-            );
-            primaryAgent = classification.primaryAgent;
-            console.log(`[MIMI] 🤖 Agent: ${primaryAgent}`);
-        } catch (e) {
-            // Fallback to general
-        }
 
-        // Build system prompt — LEAN: base + agent specialization + tools only
-        let systemPrompt = this.isLowEndModel()
-            ? this.getLitePrompt()
-            : SYSTEM_PROMPT + '\n\n' + this.agentOrchestrator.getAgentPrompt(primaryAgent);
+            // AUTO-RAG: Enrich last user message with document context
+            // BUG-1 FIX: wrapped in timeout to prevent hanging
+            let enrichedMessages = [...messages];
+            const lastUserMessage = messages.filter(m => m.role === 'user').pop();
 
-        // Collaborative context (Skills)
-        const collaborativeContext = this.agentOrchestrator.buildCollaborativeContext(primaryAgent);
-        if (collaborativeContext) {
-            systemPrompt += collaborativeContext;
-        }
-
-        // Tool descriptions
-        systemPrompt += '\n\n' + getToolDescriptionsForPrompt();
-
-        // Action trigger (regex-based intent detection)
-        const userMsg = messages[messages.length - 1]?.content || '';
-
-        // Phase 4: Memory context injection (after userMsg is declared)
-        try {
-            const memoryContext = await this.agentMemory?.buildMemoryContext(userMsg);
-            if (memoryContext) {
-                systemPrompt += '\n\n' + memoryContext;
-                console.log('[MIMI] 🧠 Memory context injected');
-            }
-        } catch (e) {
-            // Memory is non-critical, don't block
-        }
-
-        const actionTrigger = this.detectActionIntent(userMsg);
-        if (actionTrigger) {
-            systemPrompt += actionTrigger;
-            console.log('[MIMI] 🎯 Action trigger:', actionTrigger.trim());
-        }
-
-        let fullMessages: ChatMessage[] = [
-            { role: 'system', content: systemPrompt },
-            ...enrichedMessages.filter(m => m.role !== 'system')
-        ];
-
-        this.updateStatus('thinking');
-        AgentEvents.statusChange('thinking', primaryAgent);
-
-        // ═══════════════════════════════════════════════════════════
-        // TASK PLANNING — Manus-style autonomous decomposition
-        // ═══════════════════════════════════════════════════════════
-        let activePlan: TaskPlan | null = null;
-        const userMsg2 = messages[messages.length - 1]?.content || '';
-
-        if (this.taskPlanner?.shouldPlan(userMsg2)) {
-            activePlan = this.taskPlanner.createPlan(userMsg2);
-            activePlan.status = 'executing';
-            console.log(`[MIMI] 📋 Plan created: ${activePlan.title} (${activePlan.steps.length} steps)`);
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // AGENTIC TOOL LOOP (V3) + Result Pipeline + Self-Loop Guard
-        // LLM generates → parse tools → execute with events → pipe results → repeat
-        // Extended from 3→10 iterations for complex multi-step tasks
-        // Self-loop guard: aborts if identical tool calls repeat
-        // ═══════════════════════════════════════════════════════════
-        let iteration = 0;
-        let currentStepIndex = 0;
-        const resultPipeline = new ResultPipeline();
-        let lastToolHash = ''; // Self-loop guard
-
-        while (iteration < MimiEngine.MAX_TOOL_ITERATIONS) {
-            iteration++;
-            console.log(`[MIMI] 🔄 Generation iteration ${iteration}/${MimiEngine.MAX_TOOL_ITERATIONS}`);
-
-            // Update plan step status if we have an active plan
-            if (activePlan) {
-                const nextStep = this.taskPlanner.getNextStep(activePlan);
-                if (nextStep) {
-                    activePlan = this.taskPlanner.updateStepStatus(activePlan, nextStep.id, 'running');
-                    currentStepIndex = activePlan.steps.findIndex(s => s.id === nextStep.id);
-                }
-            }
-
-            // Run single LLM generation — collect full response for tool parsing
-            let fullResponse = '';
-            AgentEvents.thinkingStart();
-            for await (const token of this.singleGeneration(fullMessages, options)) {
-                fullResponse += token;
-                AgentEvents.textDelta(token);
-                yield token; // Stream to UI
-            }
-            AgentEvents.thinkingEnd();
-
-            // Parse for tool calls
-            const toolCalls = parseToolCalls(fullResponse);
-
-            if (toolCalls.length === 0) {
-                // No tool calls — mark current step done and we're done
-                if (activePlan) {
-                    const runningStep = activePlan.steps.find(s => s.status === 'running');
-                    if (runningStep) {
-                        activePlan = this.taskPlanner.updateStepStatus(
-                            activePlan, runningStep.id, 'done', 'Completed'
-                        );
-                    }
-                    // Mark remaining pending steps as done (summary step)
-                    for (const step of activePlan.steps) {
-                        if (step.status === 'pending') {
-                            activePlan = this.taskPlanner.updateStepStatus(
-                                activePlan, step.id, 'done', 'Completed'
-                            );
-                        }
-                    }
-                }
-                console.log('[MIMI] ✅ No tool calls, generation complete');
-                break;
-            }
-
-            // Self-loop guard: detect repeated identical tool calls
-            const currentToolHash = JSON.stringify(toolCalls.map(t => ({ tool: t.tool, params: t.parameters })));
-            if (currentToolHash === lastToolHash) {
-                console.warn('[MIMI] ⚠️ Self-loop detected: identical tool calls repeated. Aborting loop.');
-                yield '\n\n⚠️ *Wiederholte Tool-Aufrufe erkannt. Abbruch der Schleife.*\n';
-                break;
-            }
-            lastToolHash = currentToolHash;
-
-            // Execute tool calls with event emission
-            console.log(`[MIMI] 🔧 Found ${toolCalls.length} tool call(s):`, toolCalls.map(t => t.tool));
-            this.updateStatus('calculating');
-            AgentEvents.statusChange('executing', primaryAgent);
-
-            let toolResultsText = '';
-            for (const call of toolCalls) {
-                const toolStartTime = Date.now();
-                console.log(`[MIMI] ⚡ Executing: ${call.tool}(${JSON.stringify(call.parameters).slice(0, 100)})`);
-                AgentEvents.toolCallStart(call.tool, call.parameters, activePlan?.steps[currentStepIndex]?.id);
-                yield `\n\n🔧 *Tool: ${call.tool}...*\n`;
-
+            if (lastUserMessage) {
+                this.updateStatus('analyzing');
                 try {
-                    const result = await executeToolCall(call, this.toolContext);
-                    const duration = Date.now() - toolStartTime;
-                    toolResultsText += `\n\n**Tool-Ergebnis (${call.tool}):**\n${result.output}\n`;
-                    AgentEvents.toolCallEnd(call.tool, result.success, result.output, duration, activePlan?.steps[currentStepIndex]?.id);
-
-                    // Track file writes
-                    if (call.tool === 'write_file' && call.parameters?.path) {
-                        AgentEvents.fileWrite(call.parameters.path as string, 'create');
-                    } else if (call.tool === 'create_file' && result.success) {
-                        AgentEvents.artifactCreate(
-                            call.parameters?.filename as string || 'output',
-                            call.parameters?.type as string || 'txt',
-                            (call.parameters?.content as string || '').slice(0, 500),
-                            'file'
+                    let ragResolved = false;
+                    const ragContext = await Promise.race([
+                        this.enrichWithRAG(lastUserMessage.content).then(r => { ragResolved = true; return r; }),
+                        new Promise<string>(resolve => setTimeout(() => {
+                            if (!ragResolved) {
+                                console.warn('[MIMI] ⚠️ RAG timeout (8s), skipping');
+                            }
+                            resolve('');
+                        }, 8000))
+                    ]);
+                    if (ragContext) {
+                        console.log('[MIMI] 📚 RAG-Kontext gefunden');
+                        enrichedMessages = messages.map(m =>
+                            m === lastUserMessage
+                                ? { ...m, content: `${ragContext}\n\n**Frage:** ${m.content}` }
+                                : m
                         );
                     }
+                } catch (ragErr) {
+                    console.warn('[MIMI] ⚠️ RAG failed, continuing without context:', ragErr);
+                }
 
-                    console.log(`[MIMI] ✅ ${call.tool}: ${result.success ? 'OK' : 'FAIL'} (${duration}ms)`);
+                // IMAGE CONTEXT: Inject vision analysis so LLM knows about the uploaded image
+                const imageCtx = this.agentOrchestrator?.getContext?.()?.imageContext;
+                if (imageCtx) {
+                    console.log('[MIMI] 🖼️ Bild-Kontext gefunden');
+                    const currentLastMsg = enrichedMessages.filter(m => m.role === 'user').pop();
+                    if (currentLastMsg) {
+                        // If we have a multimodal model AND an uploaded image, pass the raw image data
+                        // The inference worker will convert it to image_url content blocks
+                        const uploadedImage = ImageStore.get();
+                        const isVision = this.isMultimodalModel();
 
-                    // Stream tool result to chat UI
-                    const truncatedOutput = result.output.length > 300
-                        ? result.output.slice(0, 300) + '...'
-                        : result.output;
-                    yield `\n✅ **${call.tool}** (${(duration / 1000).toFixed(1)}s): ${truncatedOutput}\n`;
-
-                    // Phase 4: Add to result pipeline for chaining
-                    const stepId = activePlan?.steps[currentStepIndex]?.id || `iter_${iteration}`;
-                    resultPipeline.addResult(stepId, call.tool, result.output);
-
-                    // Cache tool result for deduplication
-                    try {
-                        await this.agentMemory?.cacheToolResult(
-                            call.tool,
-                            JSON.stringify(call.parameters).slice(0, 200),
-                            result.output.slice(0, 500)
-                        );
-                    } catch { /* non-critical */ }
-
-                    // Mark step done on success
-                    if (activePlan) {
-                        const runningStep = activePlan.steps.find(s => s.status === 'running');
-                        if (runningStep) {
-                            activePlan = this.taskPlanner.updateStepStatus(
-                                activePlan, runningStep.id, 'done', result.output.slice(0, 200), undefined
+                        if (isVision && uploadedImage) {
+                            // MULTIMODAL: Pass raw base64 image — worker converts to image_url block
+                            console.log('[MIMI] 🖼️ Multimodal: Sende Bild direkt an VLM');
+                            enrichedMessages = enrichedMessages.map(m =>
+                                m === currentLastMsg
+                                    ? { ...m, content: `${uploadedImage} ${m.content}` }
+                                    : m
+                            );
+                        } else {
+                            // TEXT-ONLY: Inject description as text context
+                            enrichedMessages = enrichedMessages.map(m =>
+                                m === currentLastMsg
+                                    ? { ...m, content: `🖼️ **Aktuelles Bild:**\n${imageCtx}\n\n${m.content}` }
+                                    : m
                             );
                         }
                     }
-                } catch (e) {
-                    const errMsg = e instanceof Error ? e.message : String(e);
-                    const duration = Date.now() - toolStartTime;
-                    toolResultsText += `\n\n**Tool-Fehler (${call.tool}):** ${errMsg}\n`;
-                    AgentEvents.toolCallEnd(call.tool, false, errMsg, duration, activePlan?.steps[currentStepIndex]?.id);
-                    console.error(`[MIMI] ❌ ${call.tool} failed (${duration}ms):`, e);
+                }
+            }
 
-                    // Stream error to chat UI
-                    yield `\n❌ **${call.tool}** fehlgeschlagen: ${errMsg}\n`;
+            // Agent classification — BUG-1 FIX: 3s timeout
+            let primaryAgent = 'general';
+            try {
+                let classifyResolved = false;
+                const classification = await Promise.race([
+                    this.agentOrchestrator?.classifyTask(lastUserMessage?.content || '').then(r => { classifyResolved = true; return r; }) ?? Promise.resolve({ primaryAgent: 'general' }),
+                    new Promise<{ primaryAgent: string }>(resolve => setTimeout(() => {
+                        if (!classifyResolved) {
+                            console.warn('[MIMI] ⚠️ Agent classification timeout (3s), using general');
+                        }
+                        resolve({ primaryAgent: 'general' });
+                    }, 3000))
+                ]);
+                primaryAgent = classification.primaryAgent;
+                console.log(`[MIMI] 🤖 Agent: ${primaryAgent}`);
+            } catch (e: unknown) {
+                console.warn('[MIMI] Agent classification failed, using general');
+            }
 
-                    // Self-correction: mark step failed, retry if possible
+            // Build system prompt — LEAN: base + agent specialization + tools only
+            let systemPrompt = this.isLowEndModel()
+                ? this.getLitePrompt()
+                : SYSTEM_PROMPT + '\n\n' + (this.agentOrchestrator?.getAgentPrompt(primaryAgent) ?? '');
+
+            // Collaborative context (Skills)
+            const collaborativeContext = this.agentOrchestrator?.buildCollaborativeContext(primaryAgent);
+            if (collaborativeContext) {
+                systemPrompt += collaborativeContext;
+            }
+
+            // Tool descriptions
+            systemPrompt += '\n\n' + getToolDescriptionsForPrompt();
+
+            // Action trigger (regex-based intent detection)
+            const userMsg = messages[messages.length - 1]?.content || '';
+
+            // Phase 4: Memory context injection (after userMsg is declared)
+            try {
+                const memoryContext = await this.agentMemory?.buildMemoryContext(userMsg);
+                if (memoryContext) {
+                    systemPrompt += '\n\n' + memoryContext;
+                    console.log('[MIMI] 🧠 Memory context injected');
+                }
+            } catch (e: unknown) {
+                // Memory is non-critical, don't block
+            }
+
+            const actionTrigger = this.detectActionIntent(userMsg);
+            if (actionTrigger) {
+                systemPrompt += actionTrigger;
+                console.log('[MIMI] 🎯 Action trigger:', actionTrigger.trim());
+            }
+
+            let fullMessages: ChatMessage[] = [
+                { role: 'system', content: systemPrompt },
+                ...enrichedMessages.filter(m => m.role !== 'system')
+            ];
+
+            this.updateStatus('thinking');
+            AgentEvents.statusChange('thinking', primaryAgent);
+
+            // ═══════════════════════════════════════════════════════════
+            // TASK PLANNING — Manus-style autonomous decomposition
+            // ═══════════════════════════════════════════════════════════
+            let activePlan: TaskPlan | null = null;
+            const userMsg2 = messages[messages.length - 1]?.content || '';
+
+            if (this.taskPlanner?.shouldPlan(userMsg2)) {
+                activePlan = this.taskPlanner!.createPlan(userMsg2);
+                activePlan.status = 'executing';
+                console.log(`[MIMI] 📋 Plan created: ${activePlan.title} (${activePlan.steps.length} steps)`);
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // AGENTIC TOOL LOOP (V3) + Result Pipeline + Self-Loop Guard
+            // LLM generates → parse tools → execute with events → pipe results → repeat
+            // Extended from 3→10 iterations for complex multi-step tasks
+            // Self-loop guard: aborts if identical tool calls repeat
+            // ═══════════════════════════════════════════════════════════
+            let iteration = 0;
+            let currentStepIndex = 0;
+            const resultPipeline = new ResultPipeline();
+            let lastToolHash = ''; // Self-loop guard
+            let selfLoopCount = 0;  // Count consecutive identical tool call sequences
+
+            while (iteration < MimiEngine.MAX_TOOL_ITERATIONS) {
+                iteration++;
+                console.log(`[MIMI] 🔄 Generation iteration ${iteration}/${MimiEngine.MAX_TOOL_ITERATIONS}`);
+
+                // Update plan step status if we have an active plan
+                if (activePlan) {
+                    const nextStep = this.taskPlanner?.getNextStep(activePlan);
+                    if (nextStep) {
+                        activePlan = this.taskPlanner!.updateStepStatus(activePlan, nextStep.id, 'running');
+                        currentStepIndex = activePlan.steps.findIndex(s => s.id === nextStep.id);
+                    }
+                }
+
+                // Run single LLM generation — collect full response for tool parsing
+                // BUG-3 FIX: ThinkingStart/End wrapped in try-finally per iteration
+                let fullResponse = '';
+                AgentEvents.thinkingStart();
+                try {
+                    for await (const token of this.singleGeneration(fullMessages, options)) {
+                        fullResponse += token;
+                        AgentEvents.textDelta(token);
+                        yield token; // Stream to UI
+                    }
+                } finally {
+                    AgentEvents.thinkingEnd();
+                }
+
+                // STALL AUTO-RETRY: If first generation returned empty (shader JIT absorbed
+                // all time), interrupt the worker and retry once — shaders should now be compiled.
+                if (fullResponse.trim() === '' && iteration === 1) {
+                    console.log('[MIMI] 🔄 First generation was empty (shader JIT), interrupting worker & retrying...');
+
+                    // CRITICAL: Interrupt the worker to abort the hung generation
+                    // Without this, the worker is still busy and the retry will fail
+                    await this.interruptWorker();
+                    await new Promise(r => setTimeout(r, 500)); // Brief cooldown
+
+                    this.updateStatus('generating');
+                    // Give retry the same extended timeout (shaders might still be compiling)
+                    this.isFirstGeneration = true;
+                    AgentEvents.thinkingStart();
+                    try {
+                        for await (const token of this.singleGeneration(fullMessages, options)) {
+                            fullResponse += token;
+                            AgentEvents.textDelta(token);
+                            yield token;
+                        }
+                    } finally {
+                        AgentEvents.thinkingEnd();
+                    }
+                    if (fullResponse.trim() !== '') {
+                        console.log(`[MIMI] ✅ Auto-retry succeeded (${fullResponse.length} chars)`);
+                    } else {
+                        console.error('[MIMI] ❌ Auto-retry also returned empty — GPU may not support this model');
+                        // Blacklist this model so it's skipped on next page load
+                        MimiEngine.blacklistModel(this.currentModel || '');
+                        // Throw so UI can trigger runtime model fallback
+                        throw new Error('GENERATION_EMPTY: Model loaded but GPU produced zero tokens. Try a smaller model.');
+                    }
+                }
+
+                // Parse for tool calls
+                const toolCalls = parseToolCalls(fullResponse);
+
+                if (toolCalls.length === 0) {
+                    // No tool calls — mark current step done and we're done
                     if (activePlan) {
                         const runningStep = activePlan.steps.find(s => s.status === 'running');
                         if (runningStep) {
-                            activePlan = this.taskPlanner.updateStepStatus(
-                                activePlan, runningStep.id, 'failed', undefined, errMsg
+                            activePlan = this.taskPlanner!.updateStepStatus(
+                                activePlan, runningStep.id, 'done', 'Completed'
                             );
-                            // If retryable, add correction hint to prompt
-                            if (this.taskPlanner.canRetry(runningStep)) {
-                                toolResultsText += `\n⚠️ Bitte versuche es erneut mit korrigiertem Code/Query.\n`;
-                                // Reset step to pending for retry
-                                activePlan = this.taskPlanner.updateStepStatus(
-                                    activePlan, runningStep.id, 'pending' as any
+                        }
+                        // Mark remaining pending steps as done (summary step)
+                        for (const step of activePlan.steps) {
+                            if (step.status === 'pending') {
+                                activePlan = this.taskPlanner!.updateStepStatus(
+                                    activePlan, step.id, 'done', 'Completed'
                                 );
                             }
                         }
                     }
+                    console.log('[MIMI] ✅ No tool calls, generation complete');
+                    break;
+                }
+
+                // Self-loop guard: detect repeated identical tool calls (allow 1 retry for self-correction)
+                const currentToolHash = JSON.stringify(toolCalls.map(t => ({ tool: t.tool, params: t.parameters })));
+                if (currentToolHash === lastToolHash) {
+                    selfLoopCount++;
+                } else {
+                    selfLoopCount = 0;
+                }
+                lastToolHash = currentToolHash;
+                if (selfLoopCount >= 2) {
+                    console.warn('[MIMI] ⚠️ Self-loop detected: identical tool calls repeated 3 times. Aborting loop.');
+                    yield '\n\n⚠️ *Wiederholte Tool-Aufrufe erkannt. Abbruch der Schleife.*\n';
+                    break;
+                }
+
+                // Execute tool calls with event emission
+                console.log(`[MIMI] 🔧 Found ${toolCalls.length} tool call(s):`, toolCalls.map(t => t.tool));
+                this.updateStatus('calculating');
+                AgentEvents.statusChange('executing', primaryAgent);
+
+                let toolResultsText = '';
+                for (const call of toolCalls) {
+                    const toolStartTime = Date.now();
+                    console.log(`[MIMI] ⚡ Executing: ${call.tool}(${JSON.stringify(call.parameters).slice(0, 100)})`);
+                    AgentEvents.toolCallStart(call.tool, call.parameters, activePlan?.steps[currentStepIndex]?.id);
+                    yield `\n\n🔧 *Tool: ${call.tool}...*\n`;
+
+                    try {
+                        const result = await executeToolCall(call, this.toolContext);
+                        const duration = Date.now() - toolStartTime;
+                        toolResultsText += `\n\n**Tool-Ergebnis (${call.tool}):**\n${result.output}\n`;
+                        AgentEvents.toolCallEnd(call.tool, result.success, result.output, duration, activePlan?.steps[currentStepIndex]?.id);
+
+                        // Track file writes
+                        if (call.tool === 'write_file' && call.parameters?.path) {
+                            AgentEvents.fileWrite(call.parameters.path as string, 'create');
+                        } else if (call.tool === 'create_file' && result.success) {
+                            AgentEvents.artifactCreate(
+                                call.parameters?.filename as string || 'output',
+                                call.parameters?.type as string || 'txt',
+                                (call.parameters?.content as string || '').slice(0, 500),
+                                'file'
+                            );
+                        }
+
+                        console.log(`[MIMI] ✅ ${call.tool}: ${result.success ? 'OK' : 'FAIL'} (${duration}ms)`);
+
+                        // Stream tool result to chat UI
+                        const truncatedOutput = result.output.length > 300
+                            ? result.output.slice(0, 300) + '...'
+                            : result.output;
+                        yield `\n✅ **${call.tool}** (${(duration / 1000).toFixed(1)}s): ${truncatedOutput}\n`;
+
+                        // Phase 4: Add to result pipeline for chaining
+                        const stepId = activePlan?.steps[currentStepIndex]?.id || `iter_${iteration}`;
+                        resultPipeline.addResult(stepId, call.tool, result.output);
+
+                        // Cache tool result for deduplication
+                        try {
+                            await this.agentMemory?.cacheToolResult(
+                                call.tool,
+                                JSON.stringify(call.parameters).slice(0, 200),
+                                result.output.slice(0, 500)
+                            );
+                        } catch { /* non-critical */ }
+
+                        // Mark step done on success
+                        if (activePlan) {
+                            const runningStep = activePlan.steps.find(s => s.status === 'running');
+                            if (runningStep) {
+                                activePlan = this.taskPlanner!.updateStepStatus(
+                                    activePlan, runningStep.id, 'done', result.output.slice(0, 200), undefined
+                                );
+                            }
+                        }
+                    } catch (e: unknown) {
+                        const errMsg = e instanceof Error ? e.message : String(e);
+                        const duration = Date.now() - toolStartTime;
+                        toolResultsText += `\n\n**Tool-Fehler (${call.tool}):** ${errMsg}\n`;
+                        AgentEvents.toolCallEnd(call.tool, false, errMsg, duration, activePlan?.steps[currentStepIndex]?.id);
+                        console.error(`[MIMI] ❌ ${call.tool} failed (${duration}ms):`, e);
+
+                        // Stream error to chat UI
+                        yield `\n❌ **${call.tool}** fehlgeschlagen: ${errMsg}\n`;
+
+                        // Self-correction: mark step failed, retry if possible
+                        if (activePlan) {
+                            const runningStep = activePlan.steps.find(s => s.status === 'running');
+                            if (runningStep) {
+                                activePlan = this.taskPlanner!.updateStepStatus(
+                                    activePlan, runningStep.id, 'failed', undefined, errMsg
+                                );
+                                // If retryable, add correction hint to prompt
+                                if (this.taskPlanner?.canRetry(runningStep)) {
+                                    toolResultsText += `\n⚠️ Bitte versuche es erneut mit korrigiertem Code/Query.\n`;
+                                    // Reset step to pending for retry
+                                    activePlan = this.taskPlanner!.updateStepStatus(
+                                        activePlan, runningStep.id, 'pending' as any
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Feed tool results back — append as user message with tool context + piped results
+                const chainingContext = resultPipeline.buildChainingContext(3);
+                fullMessages = [
+                    ...fullMessages,
+                    { role: 'assistant', content: fullResponse },
+                    { role: 'user', content: `[TOOL_RESULTS]\n${toolResultsText}\n${chainingContext ? '\n' + chainingContext + '\n' : ''}\nNutze diese Ergebnisse um die ursprüngliche Frage zu beantworten. Antworte DIREKT basierend auf den Ergebnissen.` }
+                ];
+
+                // Yield separator before next iteration
+                yield '\n\n---\n\n';
+                this.updateStatus('thinking');
+                AgentEvents.statusChange('thinking', primaryAgent);
+            }
+
+            if (iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
+                console.warn('[MIMI] ⚠️ Max tool iterations reached');
+            }
+
+            // Mark plan as complete if all steps are done/failed
+            if (activePlan) {
+                const allDone = activePlan.steps.every(s => s.status === 'done' || s.status === 'failed');
+                if (allDone || iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
+                    activePlan.status = 'complete';
+                    const completedSteps = activePlan.steps.filter(s => s.status === 'done').length;
+                    const failedSteps = activePlan.steps.filter(s => s.status === 'failed').length;
+                    const totalDuration = Date.now() - activePlan.createdAt;
+                    AgentEvents.planComplete(activePlan.id, totalDuration, completedSteps, failedSteps);
+                    console.log(`[MIMI] 📋 Plan complete: ${completedSteps}/${activePlan.steps.length} steps done`);
                 }
             }
 
-            // Feed tool results back — append as user message with tool context + piped results
-            const chainingContext = resultPipeline.buildChainingContext(3);
-            fullMessages = [
-                ...fullMessages,
-                { role: 'assistant', content: fullResponse },
-                { role: 'user', content: `[TOOL_RESULTS]\n${toolResultsText}\n${chainingContext ? '\n' + chainingContext + '\n' : ''}\nNutze diese Ergebnisse um die ursprüngliche Frage zu beantworten. Antworte DIREKT basierend auf den Ergebnissen.` }
-            ];
+            this.isGenerating = false;
+            this.updateStatus('idle');
+            AgentEvents.statusChange('idle');
 
-            // Yield separator before next iteration
-            yield '\n\n---\n\n';
-            this.updateStatus('thinking');
-            AgentEvents.statusChange('thinking', primaryAgent);
-        }
-
-        if (iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
-            console.warn('[MIMI] ⚠️ Max tool iterations reached');
-        }
-
-        // Mark plan as complete if all steps are done/failed
-        if (activePlan) {
-            const allDone = activePlan.steps.every(s => s.status === 'done' || s.status === 'failed');
-            if (allDone || iteration >= MimiEngine.MAX_TOOL_ITERATIONS) {
-                activePlan.status = 'complete';
-                const completedSteps = activePlan.steps.filter(s => s.status === 'done').length;
-                const failedSteps = activePlan.steps.filter(s => s.status === 'failed').length;
-                const totalDuration = Date.now() - activePlan.createdAt;
-                AgentEvents.planComplete(activePlan.id, totalDuration, completedSteps, failedSteps);
-                console.log(`[MIMI] 📋 Plan complete: ${completedSteps}/${activePlan.steps.length} steps done`);
+            // Phase 4: Persist task summary if plan completed
+            if (activePlan && activePlan.status === 'complete') {
+                try {
+                    const stepTitles = activePlan.steps.map(s => s.title);
+                    const completedSteps = activePlan.steps.filter(s => s.status === 'done').length;
+                    await this.agentMemory?.storeTaskSummary(
+                        activePlan.title,
+                        stepTitles,
+                        `${completedSteps}/${activePlan.steps.length} steps completed`,
+                        Date.now() - activePlan.createdAt
+                    );
+                } catch { /* non-critical */ }
             }
-        }
-
-        this.isGenerating = false;
-        this.updateStatus('idle');
-        AgentEvents.statusChange('idle');
-
-        // Phase 4: Persist task summary if plan completed
-        if (activePlan && activePlan.status === 'complete') {
-            try {
-                const stepTitles = activePlan.steps.map(s => s.title);
-                const completedSteps = activePlan.steps.filter(s => s.status === 'done').length;
-                await this.agentMemory?.storeTaskSummary(
-                    activePlan.title,
-                    stepTitles,
-                    `${completedSteps}/${activePlan.steps.length} steps completed`,
-                    Date.now() - activePlan.createdAt
-                );
-            } catch { /* non-critical */ }
+        } finally {
+            // BUG-7 FIX: SAFETY NET — guarantee ALL state is reset on any exit path
+            this.isGenerating = false;
+            this.updateStatus('idle');
+            AgentEvents.thinkingEnd();         // Guarantee UI unblocks
+            AgentEvents.statusChange('idle');  // Guarantee status resets
         }
     }
 
@@ -1023,39 +1250,92 @@ Antworte KURZ und DIREKT.`;
     }
 
     /**
-     * REGEX TRIGGER SYSTEM - Detects action intents and injects execution commands
-     * Solution C from Team 13 analysis
+     * INTELLIGENT INTENT ROUTER — Detects user intent and injects execution directives
+     * Maps user intents to exact tools or NO_TOOL for pure text responses
      */
     private detectActionIntent(userMessage: string): string {
-        const triggers = {
-            diagram: /erstell|create|zeichne|plot|diagramm|chart|visuali|graph/i,
-            code: /schreib.*code|write.*code|function|script|programm/i,
-            analysis: /analys|berechn|calculat|auswert/i,
-            pdf: /pdf|dokument|document|report|bericht/i
-        };
+        const msg = userMessage.toLowerCase();
 
-        let result = '';
-
-        for (const [action, pattern] of Object.entries(triggers)) {
-            if (pattern.test(userMessage)) {
-                result = `\n\n[🚨 CRITICAL TRIGGER: User wants ${action.toUpperCase()}!]\n[WRITE PYTHON CODE IN \`\`\`python BLOCK NOW - NO EXPLANATION FIRST!]\n`;
-                break;
-            }
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 1: NO-TOOL intents (pure text response)
+        // These MUST be checked first to prevent false tool triggers
+        // ═══════════════════════════════════════════════════════════
+        const greetings = /^(hallo|hi|hey|guten\s*(morgen|tag|abend)|servus|moin|grüß|was\s*geht|wie\s*geht)/i;
+        if (greetings.test(msg)) {
+            return '\n\n[DIRECTIVE: Antworte freundlich auf Deutsch. KEIN Tool, KEIN JSON.]\n';
         }
 
-        // BILD-ZU-CODE PIPELINE: If image is uploaded AND user wants reproduction/analysis
+        const knowledgeQuestions = /^(was\s+ist|wer\s+ist|warum|erkl[äa]r|beschreib|definier|unterschied\s+zwischen|was\s+bedeut|was\s+sind|wie\s+funktioniert|erzähl|nenn)/i;
+        if (knowledgeQuestions.test(msg) && !/berechn|kalkulier|plot|chart|graph|such\s.*internet|web/i.test(msg)) {
+            return '\n\n[DIRECTIVE: Beantworte diese Wissensfrage direkt als Markdown-Text. KEIN Tool, KEIN JSON. Nutze Überschriften und Listen.]\n';
+        }
+
+        const listRequests = /(?:erstell|schreib|mach).*(?:liste|aufgab|plan|checkliste|todo|schritte|punkte|überblick|zusammenfassung)|liste.*erstell|plan.*erstell|checkliste/i;
+        if (listRequests.test(msg) && !/datei|download|csv|pdf|export/i.test(msg)) {
+            return '\n\n[DIRECTIVE: Erstelle die Liste/den Plan direkt als Markdown-Text. KEIN create_file Tool! Nur Text mit Überschriften, Nummerierung und Checkboxen.]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 2: Math/Calculate — MUST come before code/search
+        // ═══════════════════════════════════════════════════════════
+        const mathIntent = /(?:berechn|calculat|kalkulier|rechne|ausrechn|wie\s*viel\s*(?:ist|sind|ergibt|macht))|(?:was\s*(?:ist|ergibt|macht)\s*\d)|(?:\d+\s*[\+\-\*\/\^]\s*\d+)/i;
+        if (mathIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Nutze das calculate Tool: ```json\n{"tool": "calculate", "parameters": {"expression": "..."}}\n``` KEIN web_search für Mathe!]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════  
+        // PRIORITY 3: Web Search — explicit internet/search requests
+        // ═══════════════════════════════════════════════════════════
+        const searchIntent = /(?:such|recherch|find|google|internet|online|aktuell|nachrichten|news|wetter|kurs|preis|aktie).*(?:such|recherch|internet|web|online)|(?:such|recherch|find).*(?:nach|über|zu|im\s*internet|im\s*web|online)|(?:was\s*gibt.*neues|neueste|aktuellste)/i;
+        if (searchIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Nutze web_search: ```json\n{"tool": "web_search", "parameters": {"query": "..."}}\n```]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 4: Diagram/Chart/Plot → Python
+        // ═══════════════════════════════════════════════════════════
+        const diagramIntent = /(?:erstell|zeichne|plot|visualisier|zeig).*(?:diagramm|chart|graph|plot|kurve|balken|kreis|sinus)|(?:diagramm|chart|graph|plot|sinus).*(?:erstell|zeichne|plot)/i;
+        if (diagramIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Schreibe Python-Code mit matplotlib in einem ```python Block. Er wird automatisch ausgeführt.]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 5: Code/Programming
+        // ═══════════════════════════════════════════════════════════
+        const codeIntent = /(?:schreib|write|erstell|generier|implementier).*(?:code|script|programm|funktion|klasse|api)|(?:code|script|programm).*(?:schreib|erstell)|(?:debug|fehler.*fix|bug.*fix)/i;
+        if (codeIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Schreibe den Code in einem ```python oder ```javascript Block.]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 6: PDF/Document search
+        // ═══════════════════════════════════════════════════════════
+        const docIntent = /(?:dokument|pdf).*(?:such|find|was\s*steht|zusammenfass)|(?:such|find).*(?:in.*dokument|in.*pdf)/i;
+        if (docIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Nutze search_documents: ```json\n{"tool": "search_documents", "parameters": {"query": "..."}}\n```]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 7: File export/download — ONLY when user wants a DOWNLOAD
+        // ═══════════════════════════════════════════════════════════
+        const fileIntent = /(?:download|exportier|speicher.*als|generier.*datei|erstell.*(?:pdf|csv|excel|datei).*(?:zum.*download|als.*datei))/i;
+        if (fileIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Nutze create_file: ```json\n{"tool": "create_file", "parameters": {"type": "...", "content": "...", "filename": "..."}}\n```]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 8: Image analysis (if image uploaded)
+        // ═══════════════════════════════════════════════════════════
         const hasImage = this.agentOrchestrator?.getContext?.()?.imageContext;
         if (hasImage) {
-            const imageCodeTrigger = /reproduzier|nachbau|erstell.*chart|erstell.*diagramm|recreat|nachzeichn|mach.*daraus|konvertier|extrahier.*daten|daten.*extract|tabelle.*erstell|code.*bild|bild.*code/i;
-            if (imageCodeTrigger.test(userMessage)) {
-                result += `\n\n[🖼️→💻 BILD-ZU-CODE PIPELINE AKTIV!]
-[Du hast Zugriff auf die Bildbeschreibung. Nutze sie um Python-Code zu schreiben der das Bild als interaktives Matplotlib-Chart reproduziert.]
-[SCHRITTE: 1. Lies die Bildbeschreibung 2. Extrahiere Daten/Struktur 3. Schreibe Python mit matplotlib 4. plt.show()]
-[JETZT CODE SCHREIBEN!]\n`;
+            const imageCodeTrigger = /reproduzier|nachbau|erstell.*chart|recreat|nachzeichn|mach.*daraus|konvertier|extrahier.*daten|code.*bild|bild.*code/i;
+            if (imageCodeTrigger.test(msg)) {
+                return '\n\n[DIRECTIVE: Schreibe Python-Code um das Diagramm/Chart aus der Bildbeschreibung nachzubauen.]\n';
             }
+            return '\n\n[DIRECTIVE: Nutze analyze_image: ```json\n{"tool": "analyze_image", "parameters": {"question": "..."}}\n```]\n';
         }
 
-        return result;
+        return '';
     }
 
     // [REMOVED] getSovereignIntelligencePrompt — merged into SYSTEM_PROMPT
@@ -1114,9 +1394,9 @@ Antworte KURZ und DIREKT.`;
         try {
             const mm = getMemoryManager();
             // Unregister all possible LLM keys
-            ['llm-phi35-vision', 'llm-phi4', 'llm-phi35', 'llm-qwen25', 'llm-phi3', 'llm-llama', 'llm-qwen']
+            ['llm-phi35-vision', 'llm-phi4', 'llm-phi35', 'llm-qwen25', 'llm-qwen3', 'llm-phi3', 'llm-llama', 'llm-qwen']
                 .forEach(key => mm.unregisterModel(key));
-        } catch (e) {
+        } catch (e: unknown) {
             // Memory manager may not exist
         }
 
@@ -1125,6 +1405,7 @@ Antworte KURZ und DIREKT.`;
             this.worker = null;
         }
         this.isReady = false;
+        this._isInitializing = false; // CRITICAL: Allow re-init after terminate
         this.currentModel = null;
         this.messageHandlers.clear();
         this.updateStatus('idle');
@@ -1132,6 +1413,10 @@ Antworte KURZ und DIREKT.`;
 
     get ready(): boolean {
         return this.isReady;
+    }
+
+    get isInitializing(): boolean {
+        return this._isInitializing;
     }
 
     get model(): string | null {

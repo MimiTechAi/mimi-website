@@ -74,9 +74,14 @@ export function SandboxPanel({
     const [copied, setCopied] = useState<string | null>(null);
     const terminalEndRef = useRef<HTMLDivElement>(null);
 
-    // Auto-scroll terminal
+    // Auto-scroll terminal — use manual scrollTop to prevent propagation
     useEffect(() => {
-        terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const el = terminalEndRef.current;
+        if (!el) return;
+        const container = el.parentElement;
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
     }, [state.terminalLines]);
 
     // Auto-switch to steps tab when agent starts planning
@@ -657,8 +662,8 @@ function PreviewTab({ url, files }: { url: string | null; files: SandboxFile[] }
                             key={mode}
                             onClick={() => setDevice(mode)}
                             className={`p-1.5 rounded transition-colors ${device === mode
-                                    ? 'bg-cyan-500/20 text-cyan-400'
-                                    : 'text-gray-500 hover:text-gray-300 hover:bg-slate-700/40'
+                                ? 'bg-cyan-500/20 text-cyan-400'
+                                : 'text-gray-500 hover:text-gray-300 hover:bg-slate-700/40'
                                 }`}
                             title={mode}
                         >

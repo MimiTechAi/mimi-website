@@ -12,10 +12,12 @@ export * from './vector-store';
 // Agent Features
 export * from './voice-input';
 export * from './code-executor';
-export * from './file-generator';
+// file-generator: dynamically imported to avoid jspdf bundling issues
+// Use: const { generateAndDownload } = await import('@/lib/mimi/file-generator');
 
 // Phase 4 - Premium Features
-export * from './piper-tts';
+// piper-tts: dynamically imported to avoid onnxruntime-web bundling issues
+// Use: const { getPiperTTS } = await import('@/lib/mimi/piper-tts');
 export * from './vision-engine';
 export * from './memory-manager';
 export {

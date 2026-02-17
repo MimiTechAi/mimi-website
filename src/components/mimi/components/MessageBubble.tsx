@@ -53,8 +53,25 @@ export interface MessageBubbleProps {
 
 // Message Content with Markdown Rendering
 function MessageContent({ content }: { content: string }) {
-    // Remove code blocks (displayed in ArtifactCards instead)
-    const cleanContent = content.replace(/```[\s\S]*?```/g, '').trim();
+    // Clean up raw tool metadata, JSON, and code blocks from display
+    let cleanContent = content
+        // Remove fenced code blocks (displayed in ArtifactCards instead)
+        .replace(/```[\s\S]*?```/g, '')
+        // Remove inline JSON tool calls: {"tool": "...", ...}
+        .replace(/\{"tool"\s*:[\s\S]*?\}/g, '')
+        // Remove tool start lines: 🔧 *Tool: ...* 
+        .replace(/^🔧\s*\*Tool:.*$/gm, '')
+        // Remove tool result lines: ✅ **toolname** (...) or ❌ **toolname** (...)
+        .replace(/^[✅❌]\s*\*\*\w+\*\*.*$/gm, '')
+        // Remove [TOOL_RESULTS] blocks
+        .replace(/\[TOOL_RESULTS\][\s\S]*?(?=\n\n|\n[A-Z]|$)/g, '')
+        // Remove separator lines
+        .replace(/^---$/gm, '')
+        // Remove [HINT: ...] system injections that leaked
+        .replace(/\[HINT:.*?\]/g, '')
+        // Collapse excessive newlines
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 
     return (
         <MarkdownRenderer

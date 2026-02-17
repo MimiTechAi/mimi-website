@@ -8,7 +8,6 @@ import { useState, useEffect, useRef } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
-import { getCachedUser, getCachedChatMessages, getCachedUsers } from "@/lib/cache";
 import { motion, AnimatePresence } from "framer-motion";
 import SpotlightCard from "@/components/SpotlightCard";
 
@@ -46,30 +45,45 @@ export default function ChatPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Abrufen der gecachten Benutzerdaten
-        const user = await getCachedUser();
-        if (user) {
-          // In einer echten Anwendung würde dies aus dem Auth-Kontext kommen
-          setCurrentUser({
-            id: 1, // Standard-ID für den aktuellen Benutzer
-            name: user.name || "Mitarbeiter",
-            email: user.email || "",
-            isOnline: true,
-            lastSeen: new Date().toISOString()
-          });
+        // Fetch user via API (client-safe, avoids importing next-auth)
+        try {
+          const userRes = await fetch('/api/internal/auth');
+          if (userRes.ok) {
+            const userData = await userRes.json();
+            if (userData.user) {
+              setCurrentUser({
+                id: 1,
+                name: userData.user.name || "Mitarbeiter",
+                email: userData.user.email || "",
+                isOnline: true,
+                lastSeen: new Date().toISOString()
+              });
+            }
+          }
+        } catch {
+          // Fall through to fallback
         }
 
-        // Abrufen der gecachten Chat-Nachrichten
-        const chatMessages = await getCachedChatMessages();
-        if (chatMessages) {
-          // Transformiere die Nachrichten für die Anzeige
-          const transformedMessages = chatMessages.map((msg: any) => ({
-            ...msg,
-            type: msg.type || "text"
-          }));
-          setMessages(transformedMessages);
-        } else {
-          // Fallback zu hardcoded Daten bei Fehler
+        // Fetch chat messages via API
+        try {
+          const chatRes = await fetch('/api/internal/chat');
+          if (chatRes.ok) {
+            const chatData = await chatRes.json();
+            if (chatData.success && chatData.messages) {
+              const transformedMessages = chatData.messages.map((msg: any) => ({
+                ...msg,
+                type: msg.type || "text"
+              }));
+              setMessages(transformedMessages);
+            } else {
+              setMessages([
+                { id: 1, user: "Max Mustermann", content: "Hallo zusammen!", time: "10:30", type: "text", isOnline: true },
+                { id: 2, user: "Erika Musterfrau", content: "Guten Morgen! Wie geht's?", time: "10:32", type: "text", isOnline: true },
+                { id: 3, user: "Max Mustermann", content: "Mir geht's gut, danke! Habt ihr schon die neuen KI-Modelle ausprobiert?", time: "10:35", type: "text", isOnline: true },
+              ]);
+            }
+          }
+        } catch {
           setMessages([
             { id: 1, user: "Max Mustermann", content: "Hallo zusammen!", time: "10:30", type: "text", isOnline: true },
             { id: 2, user: "Erika Musterfrau", content: "Guten Morgen! Wie geht's?", time: "10:32", type: "text", isOnline: true },
@@ -77,10 +91,17 @@ export default function ChatPage() {
           ]);
         }
 
-        // Abrufen der gecachten Benutzerliste
-        const userList = await getCachedUsers();
-        if (userList) {
-          setUsers(userList);
+        // Fetch users list via API
+        try {
+          const usersRes = await fetch('/api/internal/users');
+          if (usersRes.ok) {
+            const usersData = await usersRes.json();
+            if (usersData.success && usersData.users) {
+              setUsers(usersData.users);
+            }
+          }
+        } catch {
+          // Fall through to fallback below
         }
       } catch (error) {
         console.error("Fehler beim Laden der Daten:", error);

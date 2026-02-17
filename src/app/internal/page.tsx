@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
-import { getCachedUser, getCachedDashboardData } from "@/lib/cache";
 import SpotlightCard from "@/components/SpotlightCard";
 import { DashboardSkeleton } from "@/components/internal/DashboardSkeleton";
 import { DashboardError } from "@/components/internal/DashboardError";
@@ -63,13 +62,31 @@ export default function InternalDashboard() {
       setLoading(true);
       setError(null);
 
-      const user = await getCachedUser();
-      if (user) {
-        setUserName(user.name || "Mitarbeiter");
+      // Fetch user data via API (client-safe, avoids importing next-auth)
+      try {
+        const userRes = await fetch('/api/internal/auth');
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          if (userData.valid || userData.user) {
+            setUserName(userData.user?.name || "Mitarbeiter");
+          }
+        }
+      } catch {
+        // Silently fall back to default name
       }
 
-      const data = await getCachedDashboardData();
-      setDashboardData(data || fallbackData);
+      // Fetch dashboard data via API
+      try {
+        const dashRes = await fetch('/api/internal/dashboard');
+        if (dashRes.ok) {
+          const dashData = await dashRes.json();
+          setDashboardData(dashData.success ? dashData.data : fallbackData);
+        } else {
+          setDashboardData(fallbackData);
+        }
+      } catch {
+        setDashboardData(fallbackData);
+      }
     } catch (err) {
       console.error("Fehler beim Laden der Dashboard-Daten:", err);
       setError("Fehler beim Laden der Dashboard-Daten. Bitte versuchen Sie es später erneut.");

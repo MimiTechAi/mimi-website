@@ -712,7 +712,7 @@ export class AgentOrchestrator {
                     skillMatches.map(m => m.skill)
                 );
             }
-        } catch (e) {
+        } catch (e: unknown) {
             // Skills optional
         }
 

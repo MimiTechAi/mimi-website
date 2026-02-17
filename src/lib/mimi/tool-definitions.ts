@@ -202,11 +202,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 /**
- * Generate compact tool descriptions for system prompt (optimized for small models)
+ * Generate compact tool descriptions with routing guidance for system prompt
+ * Optimized for small models — includes explicit WANN/NICHT rules
  */
 export function getToolDescriptionsForPrompt(): string {
     let desc = '## TOOLS\n\n';
-    desc += 'Verfügbare Tools — rufe sie als JSON in ```json Blöcken auf:\n\n';
+    desc += '⚠️ Die meisten Fragen brauchen KEIN Tool! Listen, Erklärungen, Meinungen → direkt als Text antworten.\n\n';
+    desc += 'Nur bei echtem Bedarf eines dieser Tools als JSON in ```json Blöcken aufrufen:\n\n';
 
     for (const tool of TOOL_DEFINITIONS) {
         const params = tool.parameters
@@ -215,6 +217,14 @@ export function getToolDescriptionsForPrompt(): string {
         desc += `- **${tool.name}**(${params}): ${tool.description}\n`;
     }
 
+    desc += '\n### ROUTING-REGELN:\n';
+    desc += '- Frage/Erklärung/Liste/Plan → **Kein Tool** (direkt Text schreiben)\n';
+    desc += '- Mathe (2+2, 100*5) → **calculate**\n';
+    desc += '- Internet/Recherche/News → **web_search**\n';
+    desc += '- Chart/Diagramm/Plot → **Python** (```python Block)\n';
+    desc += '- PDF durchsuchen → **search_documents**\n';
+    desc += '- Bild analysieren → **analyze_image**\n';
+    desc += '- Datei zum Download → **create_file**\n';
     desc += '\n**Format:** ```json\n{"tool": "name", "parameters": {"key": "value"}}\n```\n';
     return desc;
 }
@@ -225,8 +235,38 @@ export function getToolDescriptionsForPrompt(): string {
 // ─────────────────────────────────────────────────────────
 
 /**
- * Attempt to fix common JSON issues from LLM output:
- * - Trailing commas
+ * Keys that must be stripped from parsed JSON to prevent prototype pollution.
+ * An attacker could craft JSON like {"__proto__": {"isAdmin": true}} to
+ * modify Object.prototype and escalate privileges.
+ */
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * Recursively strip dangerous keys from a parsed JSON value.
+ * Prevents prototype pollution attacks via crafted tool parameters.
+ * Exported for testing (B-03 TDD).
+ */
+export function stripDangerousKeys<T>(value: T): T {
+    if (value === null || value === undefined || typeof value !== 'object') {
+        return value;
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(item => stripDangerousKeys(item)) as T;
+    }
+
+    const cleaned: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+        if (!DANGEROUS_KEYS.has(key)) {
+            cleaned[key] = stripDangerousKeys((value as Record<string, unknown>)[key]);
+        }
+    }
+    return cleaned as T;
+}
+
+/**
+ * Sanitize malformed JSON from LLM output.
+ * Common issues:
  * - Unquoted keys
  * - Single quotes instead of double quotes
  * - Missing closing braces
@@ -322,12 +362,35 @@ export function parseToolCalls(text: string): ToolCall[] {
 
 /**
  * Try to parse a raw string as a tool call,
- * applying sanitization if initial parse fails
+ * applying sanitization if initial parse fails.
+ * Handles multiple formats:
+ * - Direct: {"tool": "name", "parameters": {...}}
+ * - Array wrapper: {"tools": [{"tool": "name", ...}]}
+ * - Root array: [{"tool": "name", ...}]
  */
 function tryParseToolCall(raw: string): ToolCall | null {
     // Attempt 1: Direct parse
     try {
-        const parsed = JSON.parse(raw);
+        const parsed = stripDangerousKeys(JSON.parse(raw));
+
+        // Unwrap {"tools": [{...}]} or {"tool_calls": [{...}]} wrapper
+        const arr = parsed.tools || parsed.tool_calls;
+        if (Array.isArray(arr) && arr.length > 0) {
+            const first = arr[0];
+            if (isValidToolCall(first)) {
+                return { tool: first.tool, parameters: first.parameters || {} };
+            }
+        }
+
+        // Unwrap root-level array: [{"tool": "name", ...}]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            const first = parsed[0];
+            if (isValidToolCall(first)) {
+                return { tool: first.tool, parameters: first.parameters || {} };
+            }
+        }
+
+        // Direct format: {"tool": "name", "parameters": {...}}
         if (isValidToolCall(parsed)) {
             return { tool: parsed.tool, parameters: parsed.parameters || {} };
         }
@@ -338,7 +401,17 @@ function tryParseToolCall(raw: string): ToolCall | null {
     // Attempt 2: Sanitized parse
     try {
         const sanitized = sanitizeJSON(raw);
-        const parsed = JSON.parse(sanitized);
+        const parsed = stripDangerousKeys(JSON.parse(sanitized));
+
+        // Same unwrapping logic
+        const arr = parsed.tools || parsed.tool_calls;
+        if (Array.isArray(arr) && arr.length > 0) {
+            const first = arr[0];
+            if (isValidToolCall(first)) {
+                return { tool: first.tool, parameters: first.parameters || {} };
+            }
+        }
+
         if (isValidToolCall(parsed)) {
             return { tool: parsed.tool, parameters: parsed.parameters || {} };
         }
@@ -399,9 +472,66 @@ function extractSurroundingJSON(text: string, toolName: string): string | null {
 }
 
 /**
+ * Auto-map LLM parameter aliases and fix common structural issues.
+ * Small LLMs often put params at the root level or use synonyms.
+ */
+export function normalizeToolCallParameters(call: ToolCall): void {
+    const definition = TOOL_DEFINITIONS.find(t => t.name === call.tool);
+    if (!definition) return;
+
+    // Common aliases → canonical param names
+    const ALIASES: Record<string, string> = {
+        input: 'code',
+        source: 'code',
+        python_code: 'code',
+        js_code: 'code',
+        javascript_code: 'code',
+        sql_query: 'query',
+        search_query: 'query',
+        search: 'query',
+        file_path: 'path',
+        filepath: 'path',
+        filename: 'path',
+        text: 'content',
+        body: 'content',
+        math: 'expression',
+        expr: 'expression',
+        formula: 'expression',
+    };
+
+    // Step 1: Map aliases to canonical names
+    for (const [alias, canonical] of Object.entries(ALIASES)) {
+        if (alias in call.parameters && !(canonical in call.parameters)) {
+            call.parameters[canonical] = call.parameters[alias];
+            delete call.parameters[alias];
+        }
+    }
+
+    // Step 2: If a required param is still missing, try to find it at root level
+    // (LLM wrote {"tool":"execute_python","code":"print(1)"} without "parameters" wrapper)
+    for (const param of definition.parameters) {
+        if (param.required && !(param.name in call.parameters)) {
+            // Check if there's a string value in parameters that could be the missing param
+            const paramValues = Object.values(call.parameters);
+            if (definition.parameters.filter(p => p.required).length === 1 && paramValues.length === 1) {
+                // Single required param + single provided value → auto-map
+                const [key] = Object.keys(call.parameters);
+                if (key !== param.name && typeof call.parameters[key] === (param.type === 'number' ? 'number' : 'string')) {
+                    call.parameters[param.name] = call.parameters[key];
+                    delete call.parameters[key];
+                }
+            }
+        }
+    }
+}
+
+/**
  * Validate tool call parameters
  */
 export function validateToolCall(call: ToolCall): { valid: boolean; error?: string } {
+    // Auto-normalize parameters before validation
+    normalizeToolCallParameters(call);
+
     const definition = TOOL_DEFINITIONS.find(t => t.name === call.tool);
 
     if (!definition) {
@@ -667,6 +797,41 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 // Routes parsed tool calls to their handlers
 // ─────────────────────────────────────────────────────────
 
+/** B-05: Typed return types for tool context functions */
+export interface DocumentSearchResult {
+    chunk: { text: string; page?: number; index?: number };
+    documentName: string;
+    score: number;
+    source?: string;
+}
+
+export interface ImageAnalysisResult {
+    description: string;
+    text?: string;
+    answer?: string;
+}
+
+export interface FileCreationResult {
+    filename: string;
+    url?: string;
+    blob?: Blob;
+}
+
+/**
+ * Extended tool context — includes V3 workspace tools (B-05: fully typed)
+ */
+export interface ToolExecutionContext {
+    executePython?: (code: string) => Promise<string>;
+    executeJavaScript?: (code: string) => Promise<string>;
+    executeSql?: (query: string) => Promise<string>;
+    searchDocuments?: (query: string, limit?: number) => Promise<DocumentSearchResult[]>;
+    analyzeImage?: (question: string) => Promise<ImageAnalysisResult | string>;
+    createFile?: (type: string, content: string, filename?: string) => Promise<FileCreationResult | string>;
+    readFile?: (path: string) => Promise<string>;
+    writeFile?: (path: string, content: string) => Promise<void>;
+    listFiles?: (path?: string) => Promise<string[]>;
+}
+
 /**
  * Execute a parsed tool call and return the result.
  * For tools that require external dependencies (e.g., Python runtime),
@@ -674,14 +839,9 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
  */
 export async function executeToolCall(
     call: ToolCall,
-    context?: {
-        executePython?: (code: string) => Promise<string>;
-        searchDocuments?: (query: string, limit?: number) => Promise<any[]>;
-        analyzeImage?: (question: string) => Promise<any>;
-        createFile?: (type: string, content: string, filename?: string) => Promise<any>;
-    }
+    context?: ToolExecutionContext
 ): Promise<ToolResult> {
-    // Validate first
+    // Validate first (includes auto-normalization of parameters)
     const validation = validateToolCall(call);
     if (!validation.valid) {
         return { success: false, output: `Ungültiger Tool-Aufruf: ${validation.error}` };
@@ -704,11 +864,33 @@ export async function executeToolCall(
                 try {
                     const result = await context.executePython(parameters.code);
                     return { success: true, output: result };
-                } catch (e) {
+                } catch (e: unknown) {
                     return { success: false, output: `Python-Fehler: ${e}` };
                 }
             }
             return { success: false, output: 'Python-Runtime nicht verfügbar' };
+
+        case 'execute_javascript':
+            if (context?.executeJavaScript) {
+                try {
+                    const result = await context.executeJavaScript(parameters.code);
+                    return { success: true, output: result };
+                } catch (e: unknown) {
+                    return { success: false, output: `JavaScript-Fehler: ${e}` };
+                }
+            }
+            return { success: false, output: 'JavaScript-Runtime nicht verfügbar' };
+
+        case 'execute_sql':
+            if (context?.executeSql) {
+                try {
+                    const result = await context.executeSql(parameters.query);
+                    return { success: true, output: result };
+                } catch (e: unknown) {
+                    return { success: false, output: `SQL-Fehler: ${e}` };
+                }
+            }
+            return { success: false, output: 'SQL-Datenbank nicht verfügbar' };
 
         case 'search_documents':
             if (context?.searchDocuments) {
@@ -726,7 +908,7 @@ export async function executeToolCall(
                             : 'Keine Ergebnisse gefunden.',
                         data: results
                     };
-                } catch (e) {
+                } catch (e: unknown) {
                     return { success: false, output: `Suche fehlgeschlagen: ${e}` };
                 }
             }
@@ -741,7 +923,7 @@ export async function executeToolCall(
                         output: typeof result === 'string' ? result : JSON.stringify(result),
                         data: result
                     };
-                } catch (e) {
+                } catch (e: unknown) {
                     return { success: false, output: `Bildanalyse fehlgeschlagen: ${e}` };
                 }
             }
@@ -759,11 +941,52 @@ export async function executeToolCall(
                         success: true,
                         output: `Datei "${parameters.filename || 'download'}.${parameters.type}" erstellt!`
                     };
-                } catch (e) {
+                } catch (e: unknown) {
                     return { success: false, output: `Dateierstellung fehlgeschlagen: ${e}` };
                 }
             }
             return { success: false, output: 'Dateigenerierung nicht verfügbar' };
+
+        case 'read_file':
+            if (context?.readFile) {
+                try {
+                    const content = await context.readFile(parameters.path);
+                    return { success: true, output: content };
+                } catch (e: unknown) {
+                    return { success: false, output: `Datei lesen fehlgeschlagen: ${e}` };
+                }
+            }
+            return { success: false, output: 'Dateisystem nicht verfügbar' };
+
+        case 'write_file':
+            if (context?.writeFile) {
+                try {
+                    await context.writeFile(parameters.path, parameters.content);
+                    return {
+                        success: true,
+                        output: `Datei "${parameters.path}" erfolgreich geschrieben.`
+                    };
+                } catch (e: unknown) {
+                    return { success: false, output: `Datei schreiben fehlgeschlagen: ${e}` };
+                }
+            }
+            return { success: false, output: 'Dateisystem nicht verfügbar' };
+
+        case 'list_files':
+            if (context?.listFiles) {
+                try {
+                    const files = await context.listFiles(parameters.path || '/');
+                    return {
+                        success: true,
+                        output: files.length > 0
+                            ? `📁 Dateien:\n${files.map(f => `  - ${f}`).join('\n')}`
+                            : 'Verzeichnis ist leer.'
+                    };
+                } catch (e: unknown) {
+                    return { success: false, output: `Verzeichnis auflisten fehlgeschlagen: ${e}` };
+                }
+            }
+            return { success: false, output: 'Dateisystem nicht verfügbar' };
 
         default:
             return { success: false, output: `Unbekanntes Tool: ${tool}` };
@@ -797,7 +1020,7 @@ function executeCalculate(expression: string): ToolResult {
             output: `${expression} = ${result}`,
             data: result
         };
-    } catch (e) {
+    } catch (e: unknown) {
         return {
             success: false,
             output: `Berechnungsfehler: ${e instanceof Error ? e.message : String(e)}`

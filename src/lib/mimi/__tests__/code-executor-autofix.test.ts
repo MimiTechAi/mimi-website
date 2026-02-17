@@ -225,4 +225,54 @@ plt.show()`
       )
     })
   })
+
+  describe('Common LLM Typo Corrections (B-19)', () => {
+    it('should fix pritn → print', () => {
+      const fixed = autoFixCode('pritn("hello")')
+      expect(fixed).toBe('print("hello")')
+    })
+
+    it('should fix prnt → print', () => {
+      const fixed = autoFixCode('prnt(x)')
+      expect(fixed).toBe('print(x)')
+    })
+
+    it('should fix lenght → length', () => {
+      const fixed = autoFixCode('x = arr.lenght')
+      expect(fixed).toBe('x = arr.length')
+    })
+
+    it('should fix retrun → return', () => {
+      const fixed = autoFixCode('retrun x + 1')
+      expect(fixed).toBe('return x + 1')
+    })
+
+    it('should fix improt → import', () => {
+      const fixed = autoFixCode('improt numpy as np')
+      expect(fixed).toContain('import numpy as np')
+    })
+
+    it('should fix funciton → function', () => {
+      const fixed = autoFixCode('funciton foo() {}')
+      expect(fixed).toBe('function foo() {}')
+    })
+
+    it('should fix ture → true and flase → false', () => {
+      const fixed = autoFixCode('x = ture\ny = flase')
+      expect(fixed).toContain('true')
+      expect(fixed).toContain('false')
+    })
+
+    it('should return empty string for whitespace-only input', () => {
+      expect(autoFixCode('')).toBe('')
+      expect(autoFixCode('   ')).toBe('')
+      expect(autoFixCode('\n\n')).toBe('')
+    })
+
+    it('should handle multiple typos on a single line', () => {
+      const fixed = autoFixCode('pritn(lenght)')
+      expect(fixed).toBe('print(length)')
+    })
+  })
 })
+

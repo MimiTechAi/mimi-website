@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Search, FileText, Folder, Plus, Edit, Eye, History, Link as LinkIcon, Book } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { getCachedWikiArticles } from "@/lib/cache";
+
 import { motion } from "framer-motion";
 import SpotlightCard from "@/components/SpotlightCard";
 
@@ -167,21 +167,21 @@ export default function WikiPage() {
     }
   ];
 
-  // Simulierte API-Anfrage zum Abrufen von Artikeln
+  // Fetch wiki articles via API (client-safe)
   useEffect(() => {
     const fetchArticles = async () => {
       try {
-        // Abrufen der gecachten Wiki-Artikel
-        const cachedArticles = await getCachedWikiArticles();
-        if (cachedArticles) {
-          setArticles(cachedArticles);
-        } else {
-          // Fallback zu hardcoded Daten
-          setArticles(recentArticles);
+        const res = await fetch('/api/internal/wiki');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.articles) {
+            setArticles(data.articles);
+            return;
+          }
         }
+        setArticles(recentArticles);
       } catch (error) {
         console.error("Fehler beim Laden der Wiki-Artikel:", error);
-        // Fallback zu hardcoded Daten
         setArticles(recentArticles);
       }
     };

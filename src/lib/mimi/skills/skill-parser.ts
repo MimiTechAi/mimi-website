@@ -70,7 +70,7 @@ export function parseSkillMD(content: string, sourcePath: string): {
  */
 function parseYAML(yamlContent: string): SkillMetadata {
     const lines = yamlContent.split('\n');
-    const result: any = {};
+    const result: Partial<SkillMetadata> & Record<string, unknown> = {};
     let currentKey: string | null = null;
     let currentArray: string[] = [];
 

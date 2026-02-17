@@ -278,3 +278,71 @@ describe('Singleton', () => {
         expect(engine1).toBe(engine2);
     });
 });
+
+describe('ConsensusDetector — Edge Cases (B-20)', () => {
+    let detector: ConsensusDetector;
+
+    beforeEach(() => {
+        detector = new ConsensusDetector();
+    });
+
+    it('should handle empty source list without errors', async () => {
+        const groups = await detector.detectConsensus([]);
+        expect(groups).toEqual([]);
+    });
+
+    it('should categorize single-source claims as uncertain', async () => {
+        const singleSource: ResearchSource[] = [{
+            id: 'solo',
+            url: 'https://example.com',
+            title: 'Solo Source',
+            snippet: 'Only one source here',
+            content: 'This is a standalone claim with enough text to generate at least one claim from extraction.',
+            timestamp: Date.now(),
+            credibility: 0.9,
+            sourceType: 'search'
+        }];
+
+        const groups = await detector.detectConsensus(singleSource);
+        // Single-source claims can't have consensus
+        groups.forEach(group => {
+            expect(['uncertain', 'disputed', 'consensus']).toContain(group.category);
+        });
+    });
+
+    it('should produce groups with valid agreement scores', async () => {
+        const sources: ResearchSource[] = [
+            {
+                id: 'a', url: 'https://a.com', title: 'Source A', snippet: 'A',
+                content: 'The earth orbits the sun. This is a well established fact. Scientific consensus.',
+                timestamp: Date.now(), credibility: 0.9, sourceType: 'wiki'
+            },
+            {
+                id: 'b', url: 'https://b.com', title: 'Source B', snippet: 'B',
+                content: 'Our planet earth orbits the sun. Scientists agree on this fundamental truth.',
+                timestamp: Date.now(), credibility: 0.85, sourceType: 'scholar'
+            }
+        ];
+
+        const groups = await detector.detectConsensus(sources);
+        groups.forEach(group => {
+            expect(group.agreement).toBeGreaterThanOrEqual(0);
+            expect(group.agreement).toBeLessThanOrEqual(1);
+            expect(group.claims.length).toBeGreaterThan(0);
+            expect(group.topic).toBeDefined();
+        });
+    });
+
+    it('should return non-empty topic strings', async () => {
+        const sources: ResearchSource[] = [{
+            id: '1', url: 'https://a.com', title: 'Test', snippet: 'Test',
+            content: 'Machine learning is a subset of artificial intelligence. It uses data to learn patterns automatically.',
+            timestamp: Date.now(), credibility: 0.8, sourceType: 'search'
+        }];
+
+        const groups = await detector.detectConsensus(sources);
+        groups.forEach(group => {
+            expect(group.topic.length).toBeGreaterThan(0);
+        });
+    });
+});

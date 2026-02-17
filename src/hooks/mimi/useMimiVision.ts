@@ -15,6 +15,7 @@ import type { AgentStatus, ChatMessage } from "./types";
 import { getVisionEngine } from "@/lib/mimi/vision-engine";
 import { getMemoryManager } from "@/lib/mimi/memory-manager";
 import { getOrchestrator } from "@/lib/mimi/agent-orchestrator";
+import { ImageStore } from "@/lib/mimi/image-store";
 
 // ─── P2-1: Image Resizing Utility ──────────────────────
 const MAX_VISION_DIMENSION = 2048;
@@ -171,14 +172,14 @@ export function useMimiVision(): UseMimiVisionReturn {
                         console.warn('[Vision] Could not update orchestrator context:', e);
                     }
 
-                    // Store image ref on window for analyzeImage tool handler
-                    (window as any).__mimiUploadedImage = base64;
+                    // Store image ref using typed ImageStore (B-02)
+                    ImageStore.set(base64);
 
                     // BUG-2 fix: Auto-cleanup after 5 min to prevent memory leaks
                     setTimeout(() => {
-                        if ((window as any).__mimiUploadedImage === base64) {
-                            (window as any).__mimiUploadedImage = null;
-                            console.log('[Vision] 🧹 Cleaned up __mimiUploadedImage (timeout)');
+                        if (ImageStore.get() === base64) {
+                            ImageStore.clear();
+                            console.log('[Vision] 🧹 Cleaned up uploaded image (timeout)');
                         }
                     }, 5 * 60 * 1000);
 

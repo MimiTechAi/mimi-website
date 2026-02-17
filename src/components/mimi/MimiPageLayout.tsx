@@ -11,12 +11,29 @@
  * © 2026 MIMI Tech AI. All rights reserved.
  */
 
+import dynamic from "next/dynamic";
 import { useMimiAgentContext } from "./MimiAgentContext";
 import { TaskListPanel } from "./panels/TaskListPanel";
 import { ChatPanel } from "./panels/ChatPanel";
-import { VirtualSandboxPanel } from "./panels/VirtualSandboxPanel";
-import { MimiModals } from "./panels/MimiModals";
 import "@/styles/agent-steps.css";
+
+// ── Code-split heavy panels (loaded after initial paint) ────
+const VirtualSandboxPanel = dynamic(
+    () => import("./panels/VirtualSandboxPanel").then(m => m.VirtualSandboxPanel),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="mimi-panel panel-right" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', opacity: 0.6 }}>Sandbox wird geladen…</div>
+            </div>
+        ),
+    }
+);
+
+const MimiModals = dynamic(
+    () => import("./panels/MimiModals").then(m => m.MimiModals),
+    { ssr: false }
+);
 
 export function MimiPageLayout() {
     const ctx = useMimiAgentContext();
@@ -30,13 +47,6 @@ export function MimiPageLayout() {
             <div className="glow-4" />
             <div className="glow-5" />
             <div className="glow-6" />
-
-            {/* Top section labels */}
-            <div className="mimi-top-labels">
-                <span>Task List &amp; History</span>
-                <span>Intelligence Chat</span>
-                <span>Agent Computer</span>
-            </div>
 
             {/* 3-Panel Workspace */}
             <div className={`mimi-workspace${ctx.sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>

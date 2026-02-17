@@ -27,8 +27,14 @@ export function formatContent(text: string): string {
         .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
         // Ordered lists
         .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
-        // Links
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+        // Links — F1 XSS defense: strip dangerous URI schemes
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, url) => {
+            const trimmed = url.trim().toLowerCase();
+            if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:') || trimmed.startsWith('vbscript:')) {
+                return `<span>${text}</span>`;
+            }
+            return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
+        })
         // Line breaks
         .replace(/\n/g, '<br />');
 }

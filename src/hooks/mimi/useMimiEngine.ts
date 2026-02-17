@@ -9,10 +9,11 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { checkWebGPU, isModelCached, type DeviceProfile } from "@/lib/mimi/hardware-check";
+import { checkWebGPU, isModelCached, requestPersistentStorage, type DeviceProfile } from "@/lib/mimi/hardware-check";
 import { getMimiEngine, type ChatMessage, type AgentStatus, type Artifact } from "@/lib/mimi/inference-engine";
-import { generateAndDownload } from "@/lib/mimi/file-generator";
+// file-generator is dynamically imported to avoid pulling jspdf into the initial bundle
 import { getMemoryManager } from "@/lib/mimi/memory-manager";
+import { ImageStore } from "@/lib/mimi/image-store";
 import {
     trackMimiPageVisit,
     trackModelLoaded,
@@ -75,6 +76,9 @@ export function useMimiEngine(): UseMimiEngineReturn {
                 }
                 trackWebGPUCheck(true);
 
+                // Request persistent storage (Chrome: up to 60% disk = ~600GB)
+                requestPersistentStorage().catch(() => { });
+
                 setLoadingStatus("Prüfe lokalen Cache...");
                 const cached = await isModelCached(profile.model!);
 
@@ -88,12 +92,22 @@ export function useMimiEngine(): UseMimiEngineReturn {
 
                 // Model fallback cascade: if selected model fails, try progressively smaller ones
                 const { MODELS } = await import("@/lib/mimi/hardware-check");
+                const { MimiEngine } = await import("@/lib/mimi/inference-engine");
                 const fallbackChain = [
                     profile.model!,                          // Hardware-selected (best)
                     MODELS.FULL.id,                          // Phi-4 Mini
-                    MODELS.BALANCED.id,                      // Qwen 2.5 1.5B
+                    MODELS.BALANCED.id,                      // Qwen2.5 1.5B
                     MODELS.SMALL.id,                         // Llama 3.2 1B
-                ].filter((id, idx, arr) => arr.indexOf(id) === idx); // Deduplicate
+                ]
+                    .filter((id, idx, arr) => arr.indexOf(id) === idx) // Deduplicate
+                    .filter(id => {
+                        // Skip models that previously failed to generate on this GPU
+                        if (MimiEngine.isModelBlacklisted(id)) {
+                            console.log(`[MIMI] ⏭️ Skipping blacklisted model: ${id}`);
+                            return false;
+                        }
+                        return true;
+                    });
 
                 let loadedModel: string | null = null;
                 for (const modelId of fallbackChain) {
@@ -145,6 +159,26 @@ export function useMimiEngine(): UseMimiEngineReturn {
                         }
                         throw new Error(result.error || "Python-Fehler");
                     },
+                    executeJavaScript: async (code: string) => {
+                        // Execute JS in a sandboxed Function scope (no access to page DOM)
+                        try {
+                            // eslint-disable-next-line no-new-func
+                            const fn = new Function('"use strict";\n' + code);
+                            const logs: string[] = [];
+                            const origLog = console.log;
+                            console.log = (...args: any[]) => logs.push(args.map(String).join(' '));
+                            try {
+                                const result = fn();
+                                console.log = origLog;
+                                const output = logs.length > 0 ? logs.join('\n') : String(result ?? '(Keine Ausgabe)');
+                                return output;
+                            } finally {
+                                console.log = origLog;
+                            }
+                        } catch (e) {
+                            throw new Error(`JS-Fehler: ${e instanceof Error ? e.message : String(e)}`);
+                        }
+                    },
                     searchDocuments: async (query: string, limit?: number) => {
                         const { searchDocuments } = await import("@/lib/mimi/pdf-processor");
                         return searchDocuments(query, limit || 3);
@@ -155,8 +189,8 @@ export function useMimiEngine(): UseMimiEngineReturn {
                         if (!visionEngine.ready) {
                             await visionEngine.init();
                         }
-                        // Use the uploaded image from the vision hook
-                        const uploadedImg = (window as any).__mimiUploadedImage;
+                        // Use the uploaded image from the typed ImageStore (B-02)
+                        const uploadedImg = ImageStore.get();
                         if (!uploadedImg) {
                             return "Kein Bild hochgeladen. Bitte lade zuerst ein Bild hoch.";
                         }
@@ -193,6 +227,27 @@ export function useMimiEngine(): UseMimiEngineReturn {
                         URL.revokeObjectURL(url);
                         return { success: true, filename: a.download };
                     },
+                    readFile: async (path: string) => {
+                        // Virtual filesystem (in-memory) for sandbox
+                        const vfs = (window as any).__mimiVFS as Map<string, string> | undefined;
+                        if (!vfs?.has(path)) {
+                            throw new Error(`Datei nicht gefunden: ${path}`);
+                        }
+                        return vfs.get(path)!;
+                    },
+                    writeFile: async (path: string, content: string) => {
+                        // Virtual filesystem (in-memory) for sandbox
+                        if (!(window as any).__mimiVFS) {
+                            (window as any).__mimiVFS = new Map<string, string>();
+                        }
+                        ((window as any).__mimiVFS as Map<string, string>).set(path, content);
+                    },
+                    listFiles: async (path?: string) => {
+                        const vfs = (window as any).__mimiVFS as Map<string, string> | undefined;
+                        if (!vfs) return [];
+                        const prefix = path && path !== '/' ? path : '';
+                        return Array.from(vfs.keys()).filter(k => !prefix || k.startsWith(prefix));
+                    },
                 });
 
                 const memoryManager = getMemoryManager();
@@ -202,15 +257,21 @@ export function useMimiEngine(): UseMimiEngineReturn {
                 voice.initVoice();
                 documents.loadAllDocuments();
 
-                // Pyodide preload
-                try {
-                    const { preloadPyodide } = await import("@/lib/mimi/code-executor");
+                // Pyodide preload (non-blocking)
+                import("@/lib/mimi/code-executor").then(({ preloadPyodide, getPyodidePromise }) => {
                     preloadPyodide();
-                    setIsPythonReady(true);
                     console.log("✅ Python Preload gestartet");
-                } catch (e) {
+                    // Set ready only after Pyodide actually loads
+                    const promise = getPyodidePromise?.();
+                    if (promise) {
+                        promise.then(() => setIsPythonReady(true)).catch(() => { });
+                    } else {
+                        // Fallback: mark ready after a reasonable timeout
+                        setTimeout(() => setIsPythonReady(true), 5000);
+                    }
+                }).catch(e => {
                     console.log("Pyodide nicht verfügbar:", e);
-                }
+                });
             } catch (err) {
                 console.error("Initialisierungsfehler:", err);
                 setState("error");
@@ -239,27 +300,11 @@ export function useMimiEngine(): UseMimiEngineReturn {
     }, [state]);
 
     // ── Service Worker ──────────────────────────────────────────────────
+    // L1 FIX: Use centralized sw-register module (prevents duplicate registration warnings)
     useEffect(() => {
-        if ('serviceWorker' in navigator && typeof window !== 'undefined') {
-            navigator.serviceWorker
-                .register('/sw.js')
-                .then((registration) => {
-                    console.log('✅ Service Worker registered:', registration.scope);
-                    registration.addEventListener('updatefound', () => {
-                        const newWorker = registration.installing;
-                        if (newWorker) {
-                            newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    console.log('🔄 New Service Worker available. Reload to update.');
-                                }
-                            });
-                        }
-                    });
-                })
-                .catch((error) => {
-                    console.log('❌ Service Worker registration failed:', error);
-                });
-        }
+        import('@/lib/sw-register').then(({ registerServiceWorker }) => {
+            registerServiceWorker().catch(() => { /* non-critical */ });
+        });
     }, []);
 
     // ── Core Handlers ───────────────────────────────────────────────────
@@ -278,15 +323,78 @@ export function useMimiEngine(): UseMimiEngineReturn {
                 trackFirstMessage();
             }
 
-            const generator = engineRef.current.generate(chatHistoryRef.current);
-            let fullResponse = "";
+            // Runtime model fallback: if generation fails with GENERATION_EMPTY,
+            // automatically try smaller models from the fallback chain
+            let generationSucceeded = false;
+            let attemptsLeft = 3; // max fallback attempts
 
-            for await (const token of generator) {
-                fullResponse += token;
-                yield token;
+            while (!generationSucceeded && attemptsLeft > 0) {
+                attemptsLeft--;
+                try {
+                    const generator = engineRef.current.generate(chatHistoryRef.current);
+                    let fullResponse = "";
+
+                    for await (const token of generator) {
+                        fullResponse += token;
+                        yield token;
+                    }
+
+                    chatHistoryRef.current.push({ role: "assistant", content: fullResponse });
+                    generationSucceeded = true;
+                } catch (genErr) {
+                    const errMsg = genErr instanceof Error ? genErr.message : String(genErr);
+
+                    // Only fallback on GENERATION_EMPTY — other errors propagate normally
+                    if (!errMsg.includes('GENERATION_EMPTY') || attemptsLeft <= 0) {
+                        throw genErr;
+                    }
+
+                    // Determine next smaller model in fallback chain
+                    const { MODELS } = await import("@/lib/mimi/hardware-check");
+                    const currentModel = engineRef.current.model;
+                    const fallbackOrder: string[] = [
+                        MODELS.VISION_FULL.id,
+                        MODELS.FULL.id,
+                        MODELS.BALANCED.id,
+                        MODELS.SMALL.id,
+                    ];
+
+                    const currentIdx = fallbackOrder.indexOf(currentModel || '');
+                    const nextModel = currentIdx >= 0 && currentIdx < fallbackOrder.length - 1
+                        ? fallbackOrder[currentIdx + 1]
+                        : MODELS.BALANCED.id as string; // Default fallback: Qwen2.5 1.5B
+
+                    console.log(`[MIMI] 🔄 Generation failed with ${currentModel}, falling back to ${nextModel}...`);
+                    yield `\n\n⚠️ *Modell ${currentModel?.split('-').slice(0, 3).join(' ')} konnte keine Antwort erzeugen. Wechsle zu ${nextModel.split('-').slice(0, 3).join(' ')}...*\n\n`;
+
+                    // Terminate current engine and re-init with smaller model
+                    engineRef.current.terminate();
+                    setLoadingStatus(`Wechsle zu ${nextModel.split('-').slice(0, 3).join(' ')}...`);
+
+                    try {
+                        await engineRef.current.init(nextModel, (progress) => {
+                            setLoadingProgress(progress.progress);
+                            setLoadingStatus(progress.text);
+                        });
+                        setLoadedModel(nextModel);
+                        console.log(`[MIMI] ✅ Fallback model loaded: ${nextModel}`);
+                    } catch (initErr) {
+                        console.error(`[MIMI] ❌ Fallback model ${nextModel} also failed to init:`, initErr);
+                        throw new Error(`Kein Modell konnte geladen werden. Bitte Browser neu laden.`);
+                    }
+
+                    // Remove the failed assistant response from history if any
+                    if (chatHistoryRef.current[chatHistoryRef.current.length - 1]?.role === 'assistant') {
+                        chatHistoryRef.current.pop();
+                    }
+                }
             }
 
-            chatHistoryRef.current.push({ role: "assistant", content: fullResponse });
+            // Trim history to prevent context window overflow (keep last 40 messages)
+            if (chatHistoryRef.current.length > 40) {
+                chatHistoryRef.current = chatHistoryRef.current.slice(-40);
+                console.info('[MIMI] Konversationskontext auf 40 Nachrichten gekürzt');
+            }
         } finally {
             setIsGenerating(false);
         }
@@ -317,15 +425,16 @@ export function useMimiEngine(): UseMimiEngineReturn {
         }
     }, []);
 
-    const handleDownloadArtifact = useCallback((artifact: Artifact) => {
+    const handleDownloadArtifact = useCallback(async (artifact: Artifact) => {
         const filename = artifact.title.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+        const { generateAndDownload } = await import("@/lib/mimi/file-generator");
 
         if (artifact.type === 'code') {
             const ext = artifact.language === 'python' ? 'py' :
                 artifact.language === 'javascript' ? 'js' : 'txt';
-            generateAndDownload(artifact.content, `${filename}.${ext}`, 'text');
+            await generateAndDownload(artifact.content, `${filename}.${ext}`, 'text');
         } else if (artifact.type === 'plan' || artifact.type === 'document') {
-            generateAndDownload(artifact.content, filename, 'pdf', { title: artifact.title });
+            await generateAndDownload(artifact.content, filename, 'pdf', { title: artifact.title });
         }
     }, []);
 
@@ -342,8 +451,8 @@ export function useMimiEngine(): UseMimiEngineReturn {
             await engineRef.current.stopGeneration();
             console.log('✅ Generation gestoppt');
 
-            // BUG-8 fix: Only re-init if engine lost ready state (worker terminated)
-            if (deviceProfile && !engineRef.current.ready) {
+            // M4 FIX: Guard against double-init race condition
+            if (deviceProfile && !engineRef.current.ready && !engineRef.current.isInitializing) {
                 console.log('[Engine] Re-initializing after stop (worker was terminated)');
                 await engineRef.current.init(deviceProfile.model!, () => { });
             }

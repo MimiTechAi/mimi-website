@@ -11,6 +11,7 @@ import {
     TOOL_DEFINITIONS,
     parseToolCalls,
     validateToolCall,
+    normalizeToolCallParameters,
     getToolDescriptionsForPrompt,
 } from '../tool-definitions';
 
@@ -19,8 +20,8 @@ import {
 // ─────────────────────────────────────────────────────────
 
 describe('Tool Definitions Registry', () => {
-    it('should have all 6 tools defined', () => {
-        expect(TOOL_DEFINITIONS.length).toBe(6);
+    it('should have all 11 tools defined', () => {
+        expect(TOOL_DEFINITIONS.length).toBe(11);
     });
 
     it('should include web_search tool', () => {
@@ -66,6 +67,15 @@ describe('Tool Definitions Registry', () => {
     it('every tool should have a non-empty description', () => {
         for (const tool of TOOL_DEFINITIONS) {
             expect(tool.description.length).toBeGreaterThan(10);
+        }
+    });
+
+    it('should include V3 workspace tools', () => {
+        const v3Tools = ['execute_javascript', 'execute_sql', 'read_file', 'write_file', 'list_files'];
+        for (const toolName of v3Tools) {
+            const tool = TOOL_DEFINITIONS.find(t => t.name === toolName);
+            expect(tool).toBeDefined();
+            expect(tool!.handler).toBeDefined();
         }
     });
 });
@@ -207,6 +217,58 @@ describe('validateToolCall', () => {
             parameters: { expression: '2^10 + 5' }
         });
         expect(result.valid).toBe(true);
+    });
+
+    it('should validate V3 tools', () => {
+        expect(validateToolCall({ tool: 'execute_javascript', parameters: { code: 'console.log(1)' } }).valid).toBe(true);
+        expect(validateToolCall({ tool: 'execute_sql', parameters: { query: 'SELECT 1' } }).valid).toBe(true);
+        expect(validateToolCall({ tool: 'read_file', parameters: { path: '/test.txt' } }).valid).toBe(true);
+        expect(validateToolCall({ tool: 'write_file', parameters: { path: '/test.txt', content: 'hello' } }).valid).toBe(true);
+        expect(validateToolCall({ tool: 'list_files', parameters: {} }).valid).toBe(true);
+    });
+});
+
+// ─────────────────────────────────────────────────────────
+// PARAMETER NORMALIZATION (Bug 2 Fix)
+// ─────────────────────────────────────────────────────────
+
+describe('normalizeToolCallParameters', () => {
+    it('should map "input" alias to "code" for execute_python', () => {
+        const call = { tool: 'execute_python', parameters: { input: 'print(42)' } as any };
+        normalizeToolCallParameters(call);
+        expect(call.parameters.code).toBe('print(42)');
+        expect(call.parameters.input).toBeUndefined();
+    });
+
+    it('should map "search_query" alias to "query" for web_search', () => {
+        const call = { tool: 'web_search', parameters: { search_query: 'test' } as any };
+        normalizeToolCallParameters(call);
+        expect(call.parameters.query).toBe('test');
+        expect(call.parameters.search_query).toBeUndefined();
+    });
+
+    it('should map "formula" alias to "expression" for calculate', () => {
+        const call = { tool: 'calculate', parameters: { formula: '2+2' } as any };
+        normalizeToolCallParameters(call);
+        expect(call.parameters.expression).toBe('2+2');
+    });
+
+    it('should map single unknown param to single required param via fallback', () => {
+        const call = { tool: 'execute_python', parameters: { my_code: 'x=1' } as any };
+        normalizeToolCallParameters(call);
+        expect(call.parameters.code).toBe('x=1');
+    });
+
+    it('should NOT overwrite existing canonical param with alias', () => {
+        const call = { tool: 'execute_python', parameters: { code: 'real', input: 'alias' } as any };
+        normalizeToolCallParameters(call);
+        expect(call.parameters.code).toBe('real');
+    });
+
+    it('should pass through already-correct params unchanged', () => {
+        const call = { tool: 'execute_python', parameters: { code: 'print(1)' } };
+        normalizeToolCallParameters(call);
+        expect(call.parameters.code).toBe('print(1)');
     });
 });
 

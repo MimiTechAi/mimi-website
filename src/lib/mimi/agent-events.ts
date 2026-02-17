@@ -395,15 +395,15 @@ export const AgentEvents = {
     },
 
     thinkingStart() {
-        getAgentEventBus().emit('THINKING_START', {});
+        getAgentEventBus().emitImmediate('THINKING_START', {});
     },
 
     thinkingContent(text: string) {
-        getAgentEventBus().emit<ThinkingContentPayload>('THINKING_CONTENT', { text });
+        getAgentEventBus().emitImmediate<ThinkingContentPayload>('THINKING_CONTENT', { text });
     },
 
     thinkingEnd() {
-        getAgentEventBus().emit('THINKING_END', {});
+        getAgentEventBus().emitImmediate('THINKING_END', {});
     },
 
     textDelta(text: string) {

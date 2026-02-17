@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MimiSettingsProvider } from "@/lib/mimi/settings-context";
 
 export const metadata: Metadata = {
     title: "MIMI — Ihr lokaler KI-Agent",
@@ -32,5 +33,9 @@ export default function MimiLayout({
 }: {
     children: React.ReactNode;
 }) {
-    return children;
+    return (
+        <MimiSettingsProvider>
+            {children}
+        </MimiSettingsProvider>
+    );
 }

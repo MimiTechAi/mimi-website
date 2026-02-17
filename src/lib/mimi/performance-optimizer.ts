@@ -337,12 +337,19 @@ export class PerformanceMonitor {
 
     /**
      * Get current memory usage (if available)
+     * B-08: Chrome-only Performance.memory typed safely
      */
     private getMemoryUsage(): number {
         if (typeof window !== 'undefined' && 'performance' in window) {
-            const memory = (performance as any).memory;
-            if (memory) {
-                return memory.usedJSHeapSize / (1024 * 1024); // Convert to MB
+            // Chrome-specific Memory API (not in standard TS typings)
+            interface PerformanceMemory {
+                usedJSHeapSize: number;
+                totalJSHeapSize: number;
+                jsHeapSizeLimit: number;
+            }
+            const perf = performance as Performance & { memory?: PerformanceMemory };
+            if (perf.memory) {
+                return perf.memory.usedJSHeapSize / (1024 * 1024); // Convert to MB
             }
         }
         return 0;

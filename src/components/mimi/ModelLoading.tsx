@@ -123,7 +123,7 @@ export default function ModelLoading({
                 transition={{ delay: 0.2 }}
                 className="text-2xl font-bold text-white mb-2 text-center"
             >
-                {isFirstTime ? "Initialisiere neuronales Netz..." : "Lade MIMI..."}
+                {progress >= 99 ? "Kompiliere GPU-Shader..." : isFirstTime ? "Initialisiere neuronales Netz..." : "Lade MIMI..."}
             </motion.h2>
 
             {/* Status */}
@@ -198,12 +198,12 @@ export default function ModelLoading({
                 transition={{ delay: 0.5 }}
                 className="flex flex-wrap gap-3 justify-center"
             >
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-sm" role="status" style={{ cursor: 'default' }}>
                     <Sparkles className="w-4 h-4" />
                     <span>Einmalig</span>
                 </div>
 
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-purple-400 text-sm">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-purple-400 text-sm" role="status" style={{ cursor: 'default' }}>
                     <WifiOff className="w-4 h-4" />
                     <span>Danach offline nutzbar</span>
                 </div>
