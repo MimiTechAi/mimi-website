@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { getAgentEventBus, type AgentEvent, type AgentEventType } from '@/lib/mimi/agent-events';
 import type {
     PlanStartPayload,
@@ -324,10 +325,15 @@ export function useAgentEvents() {
 
                 case 'THINKING_CONTENT': {
                     const p = event.payload as ThinkingContentPayload;
-                    setState(prev => ({
-                        ...prev,
-                        thinkingContent: prev.thinkingContent + p.text
-                    }));
+                    // flushSync: force synchronous DOM commit per CoT token.
+                    // Without this, React 18 batches these with the 100ms timer setState,
+                    // causing thinking content to lag or be invisible until a layout event.
+                    flushSync(() => {
+                        setState(prev => ({
+                            ...prev,
+                            thinkingContent: prev.thinkingContent + p.text
+                        }));
+                    });
                     break;
                 }
 

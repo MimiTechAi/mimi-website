@@ -916,9 +916,10 @@
 }
 
 .agent-bubble {
-    background: rgba(15, 23, 42, 0.35);
-    backdrop-filter: blur(12px) saturate(1.2);
-    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    /* NO backdrop-filter: it creates a separate GPU compositor layer that becomes stale
+     * (React DOM updates are committed but not re-composited until a layout event like
+     * window resize). Use solid RGBA background instead — same look, zero compositor cost. */
+    background: rgba(12, 19, 35, 0.92);
     border: 1px solid rgba(0, 212, 255, 0.12);
     border-radius: 4px 14px 14px 14px;
     padding: 16px 20px;

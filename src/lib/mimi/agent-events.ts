@@ -410,7 +410,9 @@ export const AgentEvents = {
     },
 
     textDelta(text: string) {
-        getAgentEventBus().emit<TextDeltaPayload>('TEXT_DELTA', { text });
+        // Use emitImmediate — batching TEXT_DELTA events via queueMicrotask causes React 18
+        // to defer DOM commits, resulting in the 'text only visible after resize' bug.
+        getAgentEventBus().emitImmediate<TextDeltaPayload>('TEXT_DELTA', { text });
     },
 
     artifactCreate(title: string, language: string, content: string, type: 'code' | 'html' | 'chart' | 'file') {
