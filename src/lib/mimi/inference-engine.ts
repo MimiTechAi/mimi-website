@@ -79,6 +79,11 @@ User: "Suche nach Tesla Aktienkurs"
 {"tool": "web_search", "parameters": {"query": "Tesla Aktienkurs aktuell"}}
 \`\`\`
 
+User: "Was sind die aktuellen KI News in Europa?"
+\`\`\`json
+{"tool": "web_search", "parameters": {"query": "aktuelle KI News Europa 2026"}}
+\`\`\`
+
 ## TOOL JSON FORMAT (EXAKT SO!):
 \`\`\`json
 {"tool": "toolname", "parameters": {"key": "value"}}
@@ -1206,7 +1211,9 @@ Antworte KURZ und DIREKT.`;
         }
 
         const knowledgeQuestions = /^(was\s+ist|wer\s+ist|warum|erkl[äa]r|beschreib|definier|unterschied\s+zwischen|was\s+bedeut|was\s+sind|wie\s+funktioniert|erzähl|nenn)/i;
-        if (knowledgeQuestions.test(msg) && !/berechn|kalkulier|plot|chart|graph|such\s.*internet|web/i.test(msg)) {
+        // Guard: if the question contains current-events/search keywords, DON'T block tools!
+        const needsRealTimeData = /aktuell|news|nachrichten|recherch|neueste|neuigkeit|wetter|kurs|preis|aktie|such\s.*internet|web|heute|letzte\s*woche|diese\s*woche|berechn|kalkulier|plot|chart|graph/i;
+        if (knowledgeQuestions.test(msg) && !needsRealTimeData.test(msg)) {
             return '\n\n[DIRECTIVE: Beantworte diese Wissensfrage direkt als Markdown-Text. KEIN Tool, KEIN JSON. Nutze Überschriften und Listen.]\n';
         }
 
@@ -1226,7 +1233,8 @@ Antworte KURZ und DIREKT.`;
         // ═══════════════════════════════════════════════════════════  
         // PRIORITY 3: Web Search — explicit internet/search requests
         // ═══════════════════════════════════════════════════════════
-        const searchIntent = /(?:such|recherch|find|google|internet|online|aktuell|nachrichten|news|wetter|kurs|preis|aktie).*(?:such|recherch|internet|web|online)|(?:such|recherch|find).*(?:nach|über|zu|im\s*internet|im\s*web|online)|(?:was\s*gibt.*neues|neueste|aktuellste)/i;
+        // Match explicit search terms AND current-event/news patterns
+        const searchIntent = /(?:such|recherch|find|google|internet|online|aktuell|nachrichten|news|wetter|kurs|preis|aktie).*(?:such|recherch|internet|web|online)|(?:such|recherch|find).*(?:nach|über|zu|im\s*internet|im\s*web|online)|(?:was\s*gibt.*neues|neueste|aktuellste)|(?:aktuell(?:e|en|es|er)?\s+(?:news|nachrichten|event|meldung|entwicklung|trend))|(?:(?:news|nachrichten|neuigkeit)\s+(?:zu|über|aus|in|von))/i;
         if (searchIntent.test(msg)) {
             return '\n\n[DIRECTIVE: Nutze web_search: ```json\n{"tool": "web_search", "parameters": {"query": "..."}}\n```]\n';
         }
