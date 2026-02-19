@@ -157,12 +157,8 @@ export function useMimiEngine(): UseMimiEngineReturn {
                     throw new Error("Kein Modell konnte geladen werden.");
                 }
 
-                // SHADER WARMUP: Non-blocking — läuft im Hintergrund
-                // User kann SOFORT chatten, Shader kompilieren parallel
                 setState("ready");
                 setLoadingStatus('✅ MIMI ist bereit!');
-                // Fire-and-forget — kein await, kein Blockieren
-                engineRef.current.warmup();
 
                 // WebNN lazy-init nach Model-Load (Chrome 146+, non-blocking)
                 // Nutzt NPU→GPU→CPU für Embedding-Beschleunigung (RAG/Vektorsuche)

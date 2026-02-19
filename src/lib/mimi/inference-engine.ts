@@ -151,7 +151,7 @@ export class MimiEngine {
     private isReady = false;
     private _isInitializing = false;
     private currentModel: string | null = null;
-    private warmupComplete: Promise<void> = Promise.resolve();
+
     private isFirstGeneration = true;
     private statusCallback: StatusCallback | null = null;
     private agentOrchestrator?: AgentOrchestrator;
@@ -255,7 +255,7 @@ export class MimiEngine {
             this.isReady = true;
             this.currentModel = modelId;
             this.isFirstGeneration = true;
-            this.warmupComplete = Promise.resolve();
+
 
             // Register LLM in Memory Manager
             try {
@@ -339,48 +339,6 @@ export class MimiEngine {
         } catch (e: unknown) {
             console.warn('[MIMI] interruptGenerate failed:', e);
         }
-    }
-
-    /**
-     * Shader Warmup: Kompiliert WebGPU-Shader im Hintergrund nach init().
-     * Läuft NON-BLOCKING mit 60s Timeout — blockiert den User NICHT.
-     * Nach dem Warmup ist der nächste Chat sofort schnell.
-     */
-    warmup(): void {
-        if (!this.engine || !this.isReady) return;
-
-        // Fire-and-forget — kein await, kein Blockieren
-        const WARMUP_TIMEOUT_MS = 60_000; // 60s max — danach einfach überspringen
-
-        const warmupPromise = this.engine.chat.completions.create({
-            messages: [{ role: 'user', content: 'Hi' }],
-            max_tokens: 1,
-            temperature: 0.1,
-            stream: false,
-        });
-
-        const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Warmup timeout')), WARMUP_TIMEOUT_MS)
-        );
-
-        console.log('[MIMI] 🔥 Shader Warmup — kompiliere WebGPU-Shader...');
-
-        Promise.race([warmupPromise, timeoutPromise])
-            .then(async () => {
-                // Reset chat history — Warmup-Message soll nicht im Kontext bleiben
-                try { await this.engine?.resetChat(); } catch { /* ignore */ }
-                this.isFirstGeneration = false;
-                console.log('[MIMI] ✅ Shader Warmup abgeschlossen — erster Chat sofort schnell!');
-            })
-            .catch((e) => {
-                // Nicht kritisch — Shader werden beim ersten echten Chat kompiliert
-                const msg = e instanceof Error ? e.message : String(e);
-                if (msg.includes('timeout')) {
-                    console.warn('[MIMI] ⏱️ Shader Warmup Timeout (60s) — Shader werden beim ersten Chat kompiliert');
-                } else {
-                    console.warn('[MIMI] ⚠️ Shader Warmup fehlgeschlagen:', e);
-                }
-            });
     }
 
     /**
