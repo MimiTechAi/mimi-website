@@ -31,7 +31,7 @@ export {
     type ToolParameter,
     type ToolResult
 } from './tool-definitions';
-export * from './agent-orchestrator';
+export * from './agent-orchestrator-v2';
 export * from './browser-compat';
 
 // Phase 5 - Skills System (SOTA 2026)

@@ -28,9 +28,14 @@ export type ToolHandler = (
 
 export interface ToolExecutionContext {
     executePython?: (code: string) => Promise<string>;
+    executeJavaScript?: (code: string) => Promise<string>;
+    executeSql?: (query: string) => Promise<string>;
     searchDocuments?: (query: string, limit?: number) => Promise<any[]>;
     analyzeImage?: (question: string) => Promise<any>;
     createFile?: (type: string, content: string, filename?: string) => Promise<any>;
+    readFile?: (path: string) => Promise<string>;
+    writeFile?: (path: string, content: string) => Promise<void>;
+    listFiles?: (path?: string) => Promise<string[]>;
 }
 
 interface RegisteredTool {
@@ -138,29 +143,69 @@ const handleCreateFile: ToolHandler = async (params, ctx) => {
     }
 };
 
-const handleExecuteJavaScript: ToolHandler = async (params) => {
-    // Placeholder -- will be wired to QuickJS sandbox in Phase 2
-    return { success: false, output: 'JavaScript sandbox not yet available' };
+const handleExecuteJavaScript: ToolHandler = async (params, ctx) => {
+    if (!ctx.executeJavaScript) {
+        return { success: false, output: 'JavaScript sandbox not available' };
+    }
+    try {
+        const result = await ctx.executeJavaScript(params.code as string);
+        return { success: true, output: result };
+    } catch (e: unknown) {
+        return { success: false, output: `JavaScript error: ${e instanceof Error ? e.message : String(e)}` };
+    }
 };
 
-const handleExecuteSql: ToolHandler = async (params) => {
-    // Placeholder -- will be wired to SQLite in Phase 3
-    return { success: false, output: 'SQL engine not yet available' };
+const handleExecuteSql: ToolHandler = async (params, ctx) => {
+    if (!ctx.executeSql) {
+        return { success: false, output: 'SQL engine not available' };
+    }
+    try {
+        const result = await ctx.executeSql(params.query as string);
+        return { success: true, output: result };
+    } catch (e: unknown) {
+        return { success: false, output: `SQL error: ${e instanceof Error ? e.message : String(e)}` };
+    }
 };
 
-const handleReadFile: ToolHandler = async (params) => {
-    // Placeholder -- will be wired to workspace filesystem
-    return { success: false, output: 'File read not yet available' };
+const handleReadFile: ToolHandler = async (params, ctx) => {
+    if (!ctx.readFile) {
+        return { success: false, output: 'File read not available' };
+    }
+    try {
+        const content = await ctx.readFile(params.path as string);
+        return { success: true, output: content };
+    } catch (e: unknown) {
+        return { success: false, output: `File read error: ${e instanceof Error ? e.message : String(e)}` };
+    }
 };
 
-const handleWriteFile: ToolHandler = async (params) => {
-    // Placeholder -- will be wired to workspace filesystem
-    return { success: false, output: 'File write not yet available' };
+const handleWriteFile: ToolHandler = async (params, ctx) => {
+    if (!ctx.writeFile) {
+        return { success: false, output: 'File write not available' };
+    }
+    try {
+        await ctx.writeFile(params.path as string, params.content as string);
+        return { success: true, output: `File "${params.path}" written successfully.` };
+    } catch (e: unknown) {
+        return { success: false, output: `File write error: ${e instanceof Error ? e.message : String(e)}` };
+    }
 };
 
-const handleListFiles: ToolHandler = async (params) => {
-    // Placeholder -- will be wired to workspace filesystem
-    return { success: false, output: 'File listing not yet available' };
+const handleListFiles: ToolHandler = async (params, ctx) => {
+    if (!ctx.listFiles) {
+        return { success: false, output: 'File listing not available' };
+    }
+    try {
+        const files = await ctx.listFiles(params.path as string | undefined);
+        return {
+            success: true,
+            output: files.length > 0
+                ? `📁 Files:\n${files.map(f => `  - ${f}`).join('\n')}`
+                : 'Directory is empty.'
+        };
+    } catch (e: unknown) {
+        return { success: false, output: `File listing error: ${e instanceof Error ? e.message : String(e)}` };
+    }
 };
 
 // ═══════════════════════════════════════════════════════════

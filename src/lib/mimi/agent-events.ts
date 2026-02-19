@@ -245,10 +245,7 @@ export class AgentEventBus {
     reset(): void {
         this.snapshot = [];
         this.eventQueue = [];
-        if (this.frameRequestId !== null) {
-            cancelAnimationFrame(this.frameRequestId);
-            this.frameRequestId = null;
-        }
+        this.frameRequestId = null;
     }
 
     /**
@@ -275,16 +272,22 @@ export class AgentEventBus {
     private scheduleProcessing(): void {
         if (this.isProcessing) return;
 
-        if (typeof requestAnimationFrame !== 'undefined') {
-            if (this.frameRequestId === null) {
-                this.frameRequestId = requestAnimationFrame(() => {
-                    this.processQueue();
-                    this.frameRequestId = null;
-                });
-            }
-        } else {
-            // Fallback for non-browser environments (SSR, workers)
-            setTimeout(() => this.processQueue(), 0);
+        // FIX: Use queueMicrotask instead of requestAnimationFrame.
+        // rAF runs *after* the browser paint, outside React's scheduler — this caused
+        // state updates from the WebLLM worker to be deferred until a layout event
+        // (e.g. window resize) forced a repaint. queueMicrotask runs in the same
+        // microtask checkpoint as React's own setState batching, so the DOM updates
+        // are committed immediately.
+        if (this.frameRequestId === null) {
+            this.frameRequestId = 1; // Mark as scheduled
+            const scheduler =
+                typeof queueMicrotask !== 'undefined'
+                    ? queueMicrotask
+                    : (fn: () => void) => Promise.resolve().then(fn);
+            scheduler(() => {
+                this.frameRequestId = null;
+                this.processQueue();
+            });
         }
     }
 

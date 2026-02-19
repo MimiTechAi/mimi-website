@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { usePathname, useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 import { SessionProvider, signIn, useSession } from "next-auth/react";
+import { LocalDBProvider } from "@/components/LocalDBProvider";
 
 export default function InternalLayout({
   children,
@@ -16,9 +17,11 @@ export default function InternalLayout({
 }) {
   return (
     <SessionProvider>
-      <InternalLayoutContent>
-        {children}
-      </InternalLayoutContent>
+      <LocalDBProvider>
+        <InternalLayoutContent>
+          {children}
+        </InternalLayoutContent>
+      </LocalDBProvider>
     </SessionProvider>
   );
 }

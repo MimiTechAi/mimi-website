@@ -55,7 +55,7 @@ export default function UnsupportedBrowser({ error }: UnsupportedBrowserProps) {
                 transition={{ delay: 0.2 }}
                 className="text-2xl font-bold text-white mb-4"
             >
-                Browser nicht kompatibel
+                Browser-Update benötigt
             </motion.h2>
 
             {/* Fehlermeldung */}
@@ -65,7 +65,9 @@ export default function UnsupportedBrowser({ error }: UnsupportedBrowserProps) {
                 transition={{ delay: 0.3 }}
                 className="text-white/60 max-w-md mb-8"
             >
-                {error}
+                Dein Browser unterstützt noch kein <strong className="text-white/80">WebGPU</strong> —
+                die Technologie, die MIMI lokal auf deinem Gerät betreibt.
+                Wechsle zu Chrome oder Edge: kostenlos und in 2 Minuten installiert.
             </motion.p>
 
             {/* Erklärung */}
@@ -79,9 +81,9 @@ export default function UnsupportedBrowser({ error }: UnsupportedBrowserProps) {
                     Was ist WebGPU?
                 </h3>
                 <p className="text-white/60 text-sm">
-                    WebGPU ist eine moderne Browser-Technologie, die es ermöglicht,
-                    KI-Modelle direkt auf Ihrer Grafikkarte auszuführen. Das bedeutet:
-                    schnelle Antworten, kein Internet erforderlich, und 100% Privatsphäre.
+                    WebGPU ist eine moderne Browser-Technologie, die KI-Modelle direkt
+                    auf deiner Grafikkarte ausführt — ohne Cloud, ohne Datenweitergabe,
+                    ohne monatliche Kosten. MIMI nutzt WebGPU für 100% lokale KI-Inferenz.
                 </p>
             </motion.div>
 
@@ -93,7 +95,7 @@ export default function UnsupportedBrowser({ error }: UnsupportedBrowserProps) {
                 className="space-y-4 w-full max-w-md"
             >
                 <p className="text-white/40 text-sm mb-4">
-                    Empfohlene Browser mit WebGPU-Unterstützung:
+                    Empfohlene Browser — kostenlos &amp; in 2 Minuten installiert:
                 </p>
 
                 <div className="grid gap-3">

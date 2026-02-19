@@ -49,11 +49,45 @@ export function WelcomeScreen({ onPromptSelect }: WelcomeScreenProps) {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.2 }}
-                    className="text-white/50 text-sm max-w-md mb-8"
+                    className="text-white/50 text-sm max-w-md mb-5"
                 >
                     Keine Cloud. Keine API-Calls. Ihre Daten bleiben auf Ihrem Gerät.
-                    MIMI denkt, plant und handelt – komplett lokal.
+                    MIMI denkt, plant und handelt — komplett lokal.
                 </motion.p>
+
+                {/* Privacy Trust Badges */}
+                <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.25 }}
+                    style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginBottom: '24px' }}
+                >
+                    {[
+                        { icon: '🔒', label: '100% Lokal' },
+                        { icon: '⚡', label: 'WebGPU' },
+                        { icon: '🚫', label: 'Keine Cloud' },
+                        { icon: '🇩🇪', label: 'DSGVO-konform' },
+                    ].map(badge => (
+                        <div
+                            key={badge.label}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '4px 12px',
+                                borderRadius: '999px',
+                                background: 'rgba(34,197,94,0.07)',
+                                border: '1px solid rgba(34,197,94,0.2)',
+                                color: 'rgba(134,239,172,0.85)',
+                                fontSize: '12px',
+                                fontWeight: 500,
+                            }}
+                        >
+                            <span>{badge.icon}</span>
+                            <span>{badge.label}</span>
+                        </div>
+                    ))}
+                </motion.div>
 
                 {/* Feature Icons */}
                 <motion.div

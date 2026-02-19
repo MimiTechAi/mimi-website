@@ -3,12 +3,12 @@
 /**
  * Model Loading Component
  * Zeigt Fortschritt beim erstmaligen Download des KI-Modells
- * Enhanced: ETA-Schätzung + Feature-Tipps Carousel
+ * Enhanced: ETA-Schätzung + Feature-Tipps Carousel + Cache-Clear bei Stuck
  */
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Brain, Download, WifiOff, Sparkles, Lightbulb } from "lucide-react";
+import { Brain, Download, WifiOff, Sparkles, Lightbulb, Trash2, AlertTriangle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 const featureTips = [
@@ -37,16 +37,51 @@ export default function ModelLoading({
 }: ModelLoadingProps) {
     const [tipIndex, setTipIndex] = useState(0);
     const [eta, setEta] = useState<string | null>(null);
+    const [isStuck, setIsStuck] = useState(false);
+    const [clearingCache, setClearingCache] = useState(false);
     const startTimeRef = useRef<number>(Date.now());
     const startProgressRef = useRef<number>(progress);
+    const lastProgressRef = useRef<number>(progress);
+    const lastProgressTimeRef = useRef<number>(Date.now());
+    const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Rotate feature tips every 4 seconds
+    // Stuck-Detection: Wenn Fortschritt 30s lang bei gleicher % bleibt → Cache-Clear-Button
     useEffect(() => {
-        const interval = setInterval(() => {
-            setTipIndex((prev) => (prev + 1) % featureTips.length);
-        }, 4000);
-        return () => clearInterval(interval);
-    }, []);
+        const currentProgress = progress;
+        if (currentProgress !== lastProgressRef.current) {
+            // Fortschritt hat sich geändert — kein Stuck
+            lastProgressRef.current = currentProgress;
+            lastProgressTimeRef.current = Date.now();
+            setIsStuck(false);
+            if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+        }
+
+        // Nur zwischen 10-99% prüfen (Init und Shader-Compilation ausschließen)
+        if (currentProgress > 10 && currentProgress < 99) {
+            if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+            stuckTimerRef.current = setTimeout(() => {
+                setIsStuck(true);
+            }, 30_000); // 30 Sekunden
+        }
+
+        return () => {
+            if (stuckTimerRef.current) clearTimeout(stuckTimerRef.current);
+        };
+    }, [progress]);
+
+    // Cache leeren und Seite neu laden
+    const handleClearCache = async () => {
+        setClearingCache(true);
+        try {
+            // Dynamisch importieren um Bundle-Size zu sparen
+            const { MimiEngine } = await import('@/lib/mimi/inference-engine');
+            await MimiEngine.clearModelCache();
+        } catch (e) {
+            console.error('Cache clear failed:', e);
+        } finally {
+            window.location.reload();
+        }
+    };
 
     // Calculate ETA based on progress rate
     useEffect(() => {
@@ -123,7 +158,7 @@ export default function ModelLoading({
                 transition={{ delay: 0.2 }}
                 className="text-2xl font-bold text-white mb-2 text-center"
             >
-                {progress >= 99 ? "Kompiliere GPU-Shader..." : isFirstTime ? "Initialisiere neuronales Netz..." : "Lade MIMI..."}
+                {progress >= 99 ? "GPU-Shader werden kompiliert..." : isFirstTime ? "KI-Modell wird geladen (~2 GB)" : "MIMI wird gestartet..."}
             </motion.h2>
 
             {/* Status */}
@@ -133,7 +168,9 @@ export default function ModelLoading({
                 transition={{ delay: 0.3 }}
                 className="text-white/60 text-center mb-2"
             >
-                {status}
+                {isFirstTime
+                    ? "Nur beim ersten Besuch — danach startet MIMI sofort aus dem Cache"
+                    : status}
             </motion.p>
 
             {/* ETA */}
@@ -163,6 +200,38 @@ export default function ModelLoading({
                     <span>{modelSize}</span>
                 </div>
             </motion.div>
+
+            {/* Stuck-Warning + Cache-Clear-Button */}
+            <AnimatePresence>
+                {isStuck && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="w-full max-w-md mb-4 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10"
+                    >
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="text-amber-300 text-sm font-medium mb-1">
+                                    Laden hängt bei {Math.round(progress)}%
+                                </p>
+                                <p className="text-amber-300/70 text-xs mb-3">
+                                    Der Modell-Cache könnte beschädigt sein. Cache leeren und neu starten?
+                                </p>
+                                <button
+                                    onClick={handleClearCache}
+                                    disabled={clearingCache}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-sm hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                    {clearingCache ? 'Cache wird geleert...' : 'Cache leeren & neu starten'}
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Feature Tips Carousel */}
             <motion.div
@@ -207,6 +276,31 @@ export default function ModelLoading({
                     <WifiOff className="w-4 h-4" />
                     <span>Danach offline nutzbar</span>
                 </div>
+            </motion.div>
+
+            {/* Privacy Badge — visible during loading to build trust */}
+            <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    background: 'rgba(34,197,94,0.08)',
+                    border: '1px solid rgba(34,197,94,0.25)',
+                    color: 'rgba(134,239,172,0.9)',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    marginTop: '8px',
+                }}
+                role="status"
+                aria-label="Datenschutz: Alle Daten bleiben lokal"
+            >
+                <span>🔒</span>
+                <span>Deine Daten verlassen nie dieses Gerät</span>
             </motion.div>
 
             {/* Disclaimer */}

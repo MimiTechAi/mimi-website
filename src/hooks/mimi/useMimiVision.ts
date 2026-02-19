@@ -14,7 +14,7 @@ import { useState, useCallback, useRef } from "react";
 import type { AgentStatus, ChatMessage } from "./types";
 import { getVisionEngine } from "@/lib/mimi/vision-engine";
 import { getMemoryManager } from "@/lib/mimi/memory-manager";
-import { getOrchestrator } from "@/lib/mimi/agent-orchestrator";
+import { getOrchestrator } from "@/lib/mimi/agent-orchestrator-v2";
 import { ImageStore } from "@/lib/mimi/image-store";
 
 // ─── P2-1: Image Resizing Utility ──────────────────────

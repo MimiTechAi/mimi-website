@@ -11,7 +11,7 @@ import {
     AgentOrchestrator,
     SPECIALIST_AGENTS,
     getOrchestrator,
-} from '../agent-orchestrator';
+} from '../agent-orchestrator-v2';
 
 describe('Agent Orchestrator', () => {
     let orchestrator: AgentOrchestrator;

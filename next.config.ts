@@ -135,13 +135,15 @@ const nextConfig = {
   },
 
   // CRITICAL: Security Headers für WebGPU/SharedArrayBuffer
-  // Ohne diese Header funktioniert die LLM-Inferenz nicht!
+  // COEP: credentialless → SharedArrayBuffer aktiv (Chrome 96+)
+  // Ohne COOP+COEP: kein SharedArrayBuffer, kein WebGPU-Worker-Sharing
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: [
-          // Cross-Origin Isolation für SharedArrayBuffer
+          // Cross-Origin Isolation für SharedArrayBuffer + WebGPU
+          // credentialless: lädt CDN-Ressourcen ohne Credentials (kein CORP-Header nötig)
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
           // Security Headers
@@ -159,7 +161,9 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
               "img-src 'self' data: blob: https://slelguoygbfzlpylpxfs.supabase.co https://www.google-analytics.com",
               "font-src 'self' data: https://fonts.gstatic.com",
-              "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://cas-bridge.xethub.hf.co https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com https://raw.githubusercontent.com",
+              // WebLLM Model-Downloads: HuggingFace CDN (*.hf.co), MLC-AI CDN, jsDelivr
+              // *.hf.co deckt ab: cdn-lfs.hf.co, cdn-lfs-us-1.hf.co, cdn-lfs-eu-1.hf.co
+              "connect-src 'self' https://slelguoygbfzlpylpxfs.supabase.co https://cdn.jsdelivr.net https://api.resend.com https://www.google-analytics.com https://va.vercel-scripts.com https://huggingface.co https://*.hf.co https://mlc.ai https://raw.githubusercontent.com https://cors.isomorphic-git.org https://corsproxy.io https://api.allorigins.win https://html.duckduckgo.com https://lite.duckduckgo.com",
               "worker-src 'self' blob:",
               "child-src 'self' blob:",
               "frame-src 'self'",

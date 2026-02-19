@@ -3,7 +3,10 @@
  * Gemäß Lastenheft §2.3 - Lokales Dokumenten-Verständnis
  * 
  * Extrahiert Text aus PDFs 100% client-side - nichts wird hochgeladen!
+ * 🔥 Storage unified via Dexie.js (MimiPortalDB) — no more raw IndexedDB!
  */
+
+import { db } from '@/lib/local-db';
 
 // Dynamic import für pdfjs-dist (vermeidet SSR-Probleme)
 let pdfjsLib: typeof import('pdfjs-dist') | null = null;
@@ -255,27 +258,17 @@ function generateDocumentId(file: File): string {
 }
 
 /**
- * Speichert extrahiertes Dokument in IndexedDB
+ * Speichert extrahiertes Dokument in Dexie (IndexedDB)
  */
 export async function saveDocument(doc: PDFDocument): Promise<void> {
-    const db = await openDocumentDB();
-    const tx = db.transaction('documents', 'readwrite');
-    const store = tx.objectStore('documents');
-    await store.put(doc);
+    await db.mimiDocuments.put(doc);
 }
 
 /**
  * Lädt alle gespeicherten Dokumente
  */
 export async function loadDocuments(): Promise<PDFDocument[]> {
-    const db = await openDocumentDB();
-    const tx = db.transaction('documents', 'readonly');
-    const store = tx.objectStore('documents');
-    return new Promise((resolve, reject) => {
-        const request = store.getAll();
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
+    return await db.mimiDocuments.toArray();
 }
 
 /**
@@ -347,27 +340,5 @@ export async function searchDocuments(
  * Löscht ein Dokument
  */
 export async function deleteDocument(docId: string): Promise<void> {
-    const db = await openDocumentDB();
-    const tx = db.transaction('documents', 'readwrite');
-    const store = tx.objectStore('documents');
-    await store.delete(docId);
-}
-
-/**
- * Öffnet die IndexedDB für Dokumente
- */
-async function openDocumentDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open('MimiDocuments', 1);
-
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-
-        request.onupgradeneeded = (event) => {
-            const db = (event.target as IDBOpenDBRequest).result;
-            if (!db.objectStoreNames.contains('documents')) {
-                db.createObjectStore('documents', { keyPath: 'id' });
-            }
-        };
-    });
+    await db.mimiDocuments.delete(docId);
 }

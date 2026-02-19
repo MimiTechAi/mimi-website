@@ -76,15 +76,27 @@ export function useMimiEngine(): UseMimiEngineReturn {
                 }
                 trackWebGPUCheck(true);
 
-                // Request persistent storage (Chrome: up to 60% disk = ~600GB)
-                requestPersistentStorage().catch(() => { });
+                // Request persistent storage so Chrome doesn't evict the model
+                // This prevents the model from being deleted when disk space is low
+                requestPersistentStorage().then(granted => {
+                    if (granted) {
+                        console.log('[MIMI] ✅ Persistent storage granted — model safe from eviction');
+                    } else {
+                        console.warn('[MIMI] ⚠️ Persistent storage denied — model may be evicted under disk pressure');
+                    }
+                }).catch(() => { /* non-critical */ });
 
                 setLoadingStatus("Prüfe lokalen Cache...");
-                const cached = await isModelCached(profile.model!);
+                let cached = false;
+                try {
+                    cached = await isModelCached(profile.model!);
+                } catch { /* non-critical */ }
 
                 if (cached) {
-                    setLoadingStatus("Modell gefunden! Lade aus Cache...");
-                    setLoadingProgress(50);
+                    // BUG FIX: Kein falsches 50% setzen — der Worker startet bei 0%
+                    // Das verhindert die Race-Condition wo UI bei 50% hängt
+                    setLoadingStatus("Modell im Cache — wird gestartet...");
+                    // Kein setLoadingProgress(50) hier!
                 }
 
                 setState("loading");
@@ -93,11 +105,14 @@ export function useMimiEngine(): UseMimiEngineReturn {
                 // Model fallback cascade: if selected model fails, try progressively smaller ones
                 const { MODELS } = await import("@/lib/mimi/hardware-check");
                 const { MimiEngine } = await import("@/lib/mimi/inference-engine");
+                // SOTA 2026 Fallback-Chain: Qwen3-8B → Qwen3-4B → Qwen3-1.7B → Qwen3-0.6B → Phi-3.5 (legacy)
                 const fallbackChain = [
-                    profile.model!,                          // Hardware-selected (best)
-                    MODELS.FULL.id,                          // Phi-4 Mini
-                    MODELS.BALANCED.id,                      // Qwen2.5 1.5B
-                    MODELS.SMALL.id,                         // Llama 3.2 1B
+                    profile.model!,                          // Hardware-selected (best for this GPU)
+                    MODELS.PREMIUM.id,                       // Qwen3-8B (6GB+ VRAM)
+                    MODELS.FULL.id,                          // Qwen3-4B
+                    MODELS.BALANCED.id,                      // Qwen3-1.7B
+                    MODELS.SMALL.id,                         // Qwen3-0.6B
+                    MODELS.LEGACY.id,                        // Phi-3.5 Mini (proven fallback)
                 ]
                     .filter((id, idx, arr) => arr.indexOf(id) === idx) // Deduplicate
                     .filter(id => {
@@ -142,11 +157,22 @@ export function useMimiEngine(): UseMimiEngineReturn {
                     throw new Error("Kein Modell konnte geladen werden.");
                 }
 
+                // SHADER WARMUP: Non-blocking — läuft im Hintergrund
+                // User kann SOFORT chatten, Shader kompilieren parallel
                 setState("ready");
-                setLoadingStatus(loadedModel !== profile.model
-                    ? `✅ Fallback: ${loadedModel.split('-').slice(0, 3).join(' ')} geladen`
-                    : "MIMI ist bereit!"
-                );
+                setLoadingStatus('✅ MIMI ist bereit!');
+                // Fire-and-forget — kein await, kein Blockieren
+                engineRef.current.warmup();
+
+                // WebNN lazy-init nach Model-Load (Chrome 146+, non-blocking)
+                // Nutzt NPU→GPU→CPU für Embedding-Beschleunigung (RAG/Vektorsuche)
+                import("@/lib/mimi/webnn-service").then(({ getWebNNContext }) => {
+                    getWebNNContext().then(ctx => {
+                        if (ctx) {
+                            console.log(`[MIMI] ✅ WebNN aktiv: ${ctx.deviceType.toUpperCase()} — Embeddings beschleunigt`);
+                        }
+                    }).catch(() => { /* WebNN optional — kein Fehler wenn nicht verfügbar */ });
+                }).catch(() => { /* dynamic import fallback */ });
 
 
                 // Wire tool context so the agentic loop can execute tools
@@ -179,6 +205,53 @@ export function useMimiEngine(): UseMimiEngineReturn {
                             throw new Error(`JS-Fehler: ${e instanceof Error ? e.message : String(e)}`);
                         }
                     },
+                    executeSql: async (query: string) => {
+                        // Lightweight in-memory SQL-like store (no external dependency)
+                        // Supports basic SELECT, INSERT, CREATE TABLE queries
+                        if (!(window as any).__mimiSqlDb) {
+                            (window as any).__mimiSqlDb = {
+                                tables: {} as Record<string, { columns: string[]; rows: any[][] }>,
+                                exec(sql: string) {
+                                    const q = sql.trim();
+                                    // CREATE TABLE
+                                    const createMatch = q.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([^)]+)\)/i);
+                                    if (createMatch) {
+                                        const name = createMatch[1];
+                                        const cols = createMatch[2].split(',').map((c: string) => c.trim().split(/\s+/)[0]);
+                                        if (!this.tables[name]) this.tables[name] = { columns: cols, rows: [] };
+                                        return [];
+                                    }
+                                    // INSERT INTO
+                                    const insertMatch = q.match(/INSERT\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
+                                    if (insertMatch) {
+                                        const name = insertMatch[1];
+                                        const vals = insertMatch[3].split(',').map((v: string) => v.trim().replace(/^['"]|['"]$/g, ''));
+                                        if (this.tables[name]) this.tables[name].rows.push(vals);
+                                        return [];
+                                    }
+                                    // SELECT
+                                    const selectMatch = q.match(/SELECT\s+(.+?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+))?/i);
+                                    if (selectMatch) {
+                                        const name = selectMatch[2];
+                                        const table = this.tables[name];
+                                        if (!table) return [];
+                                        return [{ columns: table.columns, values: table.rows }];
+                                    }
+                                    return [];
+                                }
+                            };
+                        }
+                        const db = (window as any).__mimiSqlDb;
+                        const results = db.exec(query);
+                        if (!results || results.length === 0) return '(Keine Ergebnisse)';
+                        const headers = results[0].columns.join(' | ');
+                        const separator = '─'.repeat(headers.length);
+                        const rows = results[0].values
+                            .map((r: any[]) => r.join(' | '))
+                            .join('\n');
+                        return `${headers}\n${separator}\n${rows}`;
+                    },
+
                     searchDocuments: async (query: string, limit?: number) => {
                         const { searchDocuments } = await import("@/lib/mimi/pdf-processor");
                         return searchDocuments(query, limit || 3);

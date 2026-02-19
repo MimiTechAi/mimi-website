@@ -63,11 +63,12 @@ export const ChatPanel = memo(function ChatPanel() {
     const [hoveredMsgIdx, setHoveredMsgIdx] = useState<number | null>(null);
 
     // H2 FIX: Typing indicator timeout — don't show dots forever
+    // 30s threshold: first generation on Apple Silicon takes longer (WebGPU shader JIT)
     const [typingTimedOut, setTypingTimedOut] = useState(false);
     useEffect(() => {
         if (ctx.isGenerating && !ctx.currentResponse) {
             setTypingTimedOut(false);
-            const timer = setTimeout(() => setTypingTimedOut(true), 15000);
+            const timer = setTimeout(() => setTypingTimedOut(true), 30000); // 30s for shader JIT
             return () => clearTimeout(timer);
         }
         setTypingTimedOut(false);
@@ -85,8 +86,8 @@ export const ChatPanel = memo(function ChatPanel() {
             {/* Aurora bar */}
             <div className="aurora-bar" />
 
-            {/* Status Pill */}
-            <div className="status-pill-wrap">
+            {/* Status Pill + Privacy Badge */}
+            <div className="status-pill-wrap" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div className="status-pill">
                     <span className="pill-label">AGENT-STATUS:</span>
                     <span className="pill-value">
@@ -94,6 +95,31 @@ export const ChatPanel = memo(function ChatPanel() {
                         {!ctx.isIdle && ctx.agentElapsedTime > 0 && ` · ${ctx.agentElapsedTime.toFixed(1)}s`}
                     </span>
                     <div className={`pill-spinner ${ctx.isIdle && ctx.isReady ? "idle" : ""}`} />
+                </div>
+                {/* Privacy Badge — always visible, addresses user trust concern */}
+                <div
+                    title="Alle KI-Berechnungen laufen lokal auf deinem Gerät. Keine Daten werden an Server gesendet."
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '3px 10px',
+                        borderRadius: '999px',
+                        background: 'rgba(34,197,94,0.08)',
+                        border: '1px solid rgba(34,197,94,0.25)',
+                        color: 'rgba(134,239,172,0.9)',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        letterSpacing: '0.02em',
+                        cursor: 'default',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                    }}
+                    role="status"
+                    aria-label="Datenschutz: Alle Daten bleiben lokal auf deinem Gerät"
+                >
+                    <span style={{ fontSize: '10px' }}>🔒</span>
+                    <span>Lokal · Keine Cloud</span>
                 </div>
             </div>
 
@@ -258,12 +284,13 @@ export const ChatPanel = memo(function ChatPanel() {
                             <div className="agent-dot">M</div>
                             <div className="agent-body">
                                 <div className="agent-bubble">
-                                    <div className="agent-text" style={{ opacity: 0.7 }}>
-                                        ⏳ Die Generierung dauert ungewöhnlich lange.
+                                    <div className="agent-text" style={{ opacity: 0.8, fontSize: '0.85rem', lineHeight: 1.5 }}>
+                                        <span style={{ display: 'block', marginBottom: '4px' }}>⚡ WebGPU kompiliert Shader für deine GPU — das passiert nur beim ersten Start.</span>
+                                        <span style={{ display: 'block', opacity: 0.65, fontSize: '0.78rem' }}>Danach antwortet MIMI sofort. Bitte kurz warten...</span>
                                         <button
                                             className="timeout-abort-btn"
                                             onClick={() => ctx.engine.handleStopGeneration()}
-                                            style={{ marginLeft: '8px', padding: '2px 10px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '0.75rem' }}
+                                            style={{ marginTop: '8px', padding: '2px 10px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '0.75rem' }}
                                         >
                                             Abbrechen
                                         </button>

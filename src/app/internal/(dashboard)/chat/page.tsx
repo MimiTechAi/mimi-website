@@ -1,6 +1,5 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Send, Paperclip, FileText, Image, Download, Bell, BellOff, Sparkles } from "lucide-react";
@@ -10,238 +9,49 @@ import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import SpotlightCard from "@/components/SpotlightCard";
-
-interface Message {
-  id: number;
-  user: string;
-  content: string;
-  time: string;
-  avatar?: string;
-  isOnline?: boolean;
-  type?: "text" | "file";
-  fileName?: string;
-  fileSize?: string;
-}
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  avatar?: string;
-  isOnline: boolean;
-  lastSeen: string;
-}
+import { useChat, useInternalUsers } from "@/hooks/use-local-data";
 
 export default function ChatPage() {
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [messageInput, setMessageInput] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
-  const clientId = useRef<string>(Math.random().toString(36).substring(7));
 
-  // API-Aufruf zum Laden der Nachrichten
+  // 🔥 Local-first: Reactive data from IndexedDB — no polling, no API calls
+  const { messages, actions: chatActions } = useChat('general');
+  const { users } = useInternalUsers();
+
+  // Use first user as current user (in real app, from auth)
+  const currentUser = users.length > 0 ? users[0] : null;
+
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch user via API (client-safe, avoids importing next-auth)
-        try {
-          const userRes = await fetch('/api/internal/auth');
-          if (userRes.ok) {
-            const userData = await userRes.json();
-            if (userData.user) {
-              setCurrentUser({
-                id: 1,
-                name: userData.user.name || "Mitarbeiter",
-                email: userData.user.email || "",
-                isOnline: true,
-                lastSeen: new Date().toISOString()
-              });
-            }
-          }
-        } catch {
-          // Fall through to fallback
-        }
-
-        // Fetch chat messages via API
-        try {
-          const chatRes = await fetch('/api/internal/chat');
-          if (chatRes.ok) {
-            const chatData = await chatRes.json();
-            if (chatData.success && chatData.messages) {
-              const transformedMessages = chatData.messages.map((msg: any) => ({
-                ...msg,
-                type: msg.type || "text"
-              }));
-              setMessages(transformedMessages);
-            } else {
-              setMessages([
-                { id: 1, user: "Max Mustermann", content: "Hallo zusammen!", time: "10:30", type: "text", isOnline: true },
-                { id: 2, user: "Erika Musterfrau", content: "Guten Morgen! Wie geht's?", time: "10:32", type: "text", isOnline: true },
-                { id: 3, user: "Max Mustermann", content: "Mir geht's gut, danke! Habt ihr schon die neuen KI-Modelle ausprobiert?", time: "10:35", type: "text", isOnline: true },
-              ]);
-            }
-          }
-        } catch {
-          setMessages([
-            { id: 1, user: "Max Mustermann", content: "Hallo zusammen!", time: "10:30", type: "text", isOnline: true },
-            { id: 2, user: "Erika Musterfrau", content: "Guten Morgen! Wie geht's?", time: "10:32", type: "text", isOnline: true },
-            { id: 3, user: "Max Mustermann", content: "Mir geht's gut, danke! Habt ihr schon die neuen KI-Modelle ausprobiert?", time: "10:35", type: "text", isOnline: true },
-          ]);
-        }
-
-        // Fetch users list via API
-        try {
-          const usersRes = await fetch('/api/internal/users');
-          if (usersRes.ok) {
-            const usersData = await usersRes.json();
-            if (usersData.success && usersData.users) {
-              setUsers(usersData.users);
-            }
-          }
-        } catch {
-          // Fall through to fallback below
-        }
-      } catch (error) {
-        console.error("Fehler beim Laden der Daten:", error);
-        // Fallback zu hardcoded Daten
-        const fallbackUsers: User[] = [
-          { id: 1, name: "Max Mustermann", email: "max.mustermann@mimitechai.com", isOnline: true, lastSeen: new Date().toISOString() },
-          { id: 2, name: "Erika Musterfrau", email: "erika.musterfrau@mimitechai.com", isOnline: true, lastSeen: new Date().toISOString() },
-          { id: 3, name: "Anna Beispiel", email: "anna.beispiel@mimitechai.com", isOnline: false, lastSeen: new Date().toISOString() },
-        ];
-        setUsers(fallbackUsers);
-        setCurrentUser(fallbackUsers[0]);
-
-        // Fallback zu hardcoded Daten bei Netzwerkfehler
-        setMessages([
-          { id: 1, user: "Max Mustermann", content: "Hallo zusammen!", time: "10:30", type: "text", isOnline: true },
-          { id: 2, user: "Erika Musterfrau", content: "Guten Morgen! Wie geht's?", time: "10:32", type: "text", isOnline: true },
-          { id: 3, user: "Max Mustermann", content: "Mir geht's gut, danke! Habt ihr schon die neuen KI-Modelle ausprobiert?", time: "10:35", type: "text", isOnline: true },
-        ]);
-      }
-    };
-
-    // Verbinde den Client für Echtzeit-Benachrichtigungen
-    const connectClient = async () => {
-      try {
-        await fetch('/api/internal/chat', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId: clientId.current })
-        });
-      } catch (error) {
-        console.error("Fehler beim Verbinden des Clients:", error);
-      }
-    };
-
-    fetchData();
-    connectClient();
-
-    // Trenne den Client beim Verlassen der Seite
-    return () => {
-      const disconnectClient = async () => {
-        try {
-          await fetch('/api/internal/chat', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId: clientId.current })
-          });
-        } catch (error) {
-          console.error("Fehler beim Trennen des Clients:", error);
-        }
-      };
-      disconnectClient();
-    };
-  }, []);
-
-  // Scrollt automatisch zur neuesten Nachricht
-  useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  // Simuliere Echtzeit-Benachrichtigungen (in einer echten Anwendung würde dies WebSockets verwenden)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // In einer echten Anwendung würden Sie hier neue Nachrichten von der API abrufen
-      // Für dieses Beispiel simulieren wir es mit einer einfachen Prüfung
-      const checkForNewMessages = async () => {
-        try {
-          const response = await fetch('/api/internal/chat');
-          const data = await response.json();
-          if (data.success && data.messages.length > messages.length) {
-            const newMessages = data.messages.slice(messages.length);
-            setMessages(prev => [...prev, ...newMessages]);
-
-            // Benachrichtigung bei neuen Nachrichten
-            if (notificationsEnabled && newMessages.length > 0) {
-              newMessages.forEach((msg: any) => {
-                if (msg.user !== currentUser?.name) {
-                  toast.info(`Neue Nachricht von ${msg.user}`, {
-                    description: msg.content,
-                    duration: 5000,
-                  });
-                }
-              });
-            }
-          }
-        } catch (error) {
-          console.error("Fehler beim Prüfen auf neue Nachrichten:", error);
-        }
-      };
-
-      checkForNewMessages();
-    }, 3000); // Prüfe alle 3 Sekunden auf neue Nachrichten
-
-    return () => clearInterval(interval);
-  }, [messages, notificationsEnabled, currentUser]);
-
   const handleSend = async () => {
-    if ((message.trim() || pendingFile) && currentUser) {
-      try {
-        // Nachricht an die API senden
-        const response = await fetch('/api/internal/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: message.trim() || (pendingFile ? `Datei angehängt: ${pendingFile.name}` : ""),
-            userId: currentUser.id,
-            userName: currentUser.name,
-            type: pendingFile ? "file" : "text",
-            fileName: pendingFile?.name,
-            fileSize: pendingFile ? formatFileSize(pendingFile.size) : undefined
-          })
-        });
+    if ((messageInput.trim() || pendingFile) && currentUser) {
+      const content = messageInput.trim() || (pendingFile ? `Datei angehängt: ${pendingFile.name}` : "");
 
-        const data = await response.json();
-        if (data.success && data.newMessage) {
-          // Nachricht hinzufügen
-          setMessages(prev => [...prev, data.newMessage]);
-          setMessage("");
-          setPendingFile(null);
-        } else {
-          toast.error("Fehler beim Senden der Nachricht");
-        }
-      } catch (error) {
-        console.error("Fehler beim Senden der Nachricht:", error);
-        toast.error("Fehler beim Senden der Nachricht");
-      }
+      await chatActions.send({
+        user: currentUser.name,
+        content,
+        time: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+        type: pendingFile ? "file" : "text",
+        fileName: pendingFile?.name,
+        fileSize: pendingFile ? formatFileSize(pendingFile.size) : undefined,
+        isOnline: true,
+      });
+
+      setMessageInput("");
+      setPendingFile(null);
     }
   };
-
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0 && currentUser) {
       const file = acceptedFiles[0];
       setPendingFile(file);
-
-      // Zeige eine Vorschau der Datei an
       toast.info("Datei bereit zum Senden", {
         description: `${file.name} (${formatFileSize(file.size)})`,
         duration: 5000,
@@ -252,7 +62,7 @@ export default function ChatPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     noClick: true,
-    maxSize: 10485760, // 10MB
+    maxSize: 10485760,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp'],
       'application/pdf': ['.pdf'],
@@ -427,8 +237,8 @@ export default function ChatPage() {
                 <div className="flex items-end gap-2">
                   <div className="relative flex-1 bg-black/20 rounded-2xl border border-white/10 focus-within:border-brand-cyan/50 transition-colors">
                     <Input
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
+                      value={messageInput}
+                      onChange={(e) => setMessageInput(e.target.value)}
                       placeholder="Nachricht eingeben..."
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
@@ -451,7 +261,7 @@ export default function ChatPage() {
                   <Button
                     onClick={handleSend}
                     size="icon"
-                    disabled={(!message.trim() && !pendingFile)}
+                    disabled={(!messageInput.trim() && !pendingFile)}
                     className="h-[50px] w-[50px] rounded-2xl bg-brand-cyan hover:bg-brand-cyan-dark text-black shadow-[0_0_15px_rgba(0,240,255,0.3)] hover:shadow-[0_0_25px_rgba(0,240,255,0.5)] transition-all duration-300"
                   >
                     <Send className="h-5 w-5" />

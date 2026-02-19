@@ -15,6 +15,7 @@ import dynamic from "next/dynamic";
 import { useMimiAgentContext } from "./MimiAgentContext";
 import { TaskListPanel } from "./panels/TaskListPanel";
 import { ChatPanel } from "./panels/ChatPanel";
+import { BrowserCheckModal } from "./BrowserCheckModal";
 import "@/styles/agent-steps.css";
 
 // ── Code-split heavy panels (loaded after initial paint) ────
@@ -57,6 +58,9 @@ export function MimiPageLayout() {
 
             {/* Overlay modals and toasts */}
             <MimiModals />
+
+            {/* Browser compatibility check — shown once if WebGPU not supported */}
+            <BrowserCheckModal />
         </div>
     );
 }

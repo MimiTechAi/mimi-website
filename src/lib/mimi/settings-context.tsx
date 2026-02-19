@@ -30,6 +30,9 @@ export interface MimiSettings {
     maxTokens: number;
     temperature: number;
     streamingEnabled: boolean;
+
+    // WebMCP — W3C Draft Feb 2026 (opt-in, Chrome 146+ Canary)
+    webMCPEnabled: boolean;
 }
 
 interface SettingsContextType {
@@ -56,6 +59,7 @@ const DEFAULT_SETTINGS: MimiSettings = {
     maxTokens: 2048,
     temperature: 0.7,
     streamingEnabled: true,
+    webMCPEnabled: false, // Opt-in: WebMCP (Chrome 146+ Canary experimental)
 };
 
 // Tool permission mapping: which tools need which permission

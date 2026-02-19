@@ -17,11 +17,11 @@ import {
     OrchestratorAgent,
     VectorRouter,
     createMoAOrchestrator,
+    SPECIALIST_AGENTS,
     type Subtask,
     type SubtaskResult,
     type AgentAssignment
 } from '../agent-orchestrator-v2';
-import { SPECIALIST_AGENTS } from '../agent-orchestrator';
 import type { ChatMessage } from '../inference-engine';
 
 describe('VerificationAgent', () => {

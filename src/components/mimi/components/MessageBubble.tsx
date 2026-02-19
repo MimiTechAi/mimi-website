@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type { Artifact } from "@/lib/mimi/inference-engine";
 import { MarkdownRenderer } from "../MarkdownRenderer";
 import { ArtifactCard } from "./ArtifactCard";
+import { detectDisclaimer, detectUncertainty } from "@/hooks/useDisclaimerDetection";
 
 export interface Message {
     id: string;
@@ -249,6 +250,64 @@ export function MessageBubble({
                                 ))}
                             </div>
                         )}
+
+                        {/* ── P0: Disclaimer + Konfidenz-Indikator ─────────────────────────── */}
+                        {!isUser && (() => {
+                            const disclaimer = detectDisclaimer(message.content);
+                            const isUncertain = detectUncertainty(message.content);
+                            if (!disclaimer.showDisclaimer && !isUncertain) return null;
+                            return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                                    {/* Disclaimer Banner */}
+                                    {disclaimer.showDisclaimer && (
+                                        <div
+                                            role="note"
+                                            aria-label={disclaimer.label}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'flex-start',
+                                                gap: '8px',
+                                                padding: '8px 12px',
+                                                borderRadius: '10px',
+                                                background: 'rgba(245,158,11,0.08)',
+                                                border: '1px solid rgba(245,158,11,0.25)',
+                                                fontSize: '11px',
+                                                lineHeight: '1.5',
+                                                color: 'rgba(253,230,138,0.85)',
+                                            }}
+                                        >
+                                            <span style={{ fontSize: '13px', flexShrink: 0, marginTop: '1px' }}>⚠️</span>
+                                            <span>
+                                                <strong style={{ fontWeight: 600 }}>{disclaimer.label}:</strong>{' '}
+                                                {disclaimer.detail}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {/* Konfidenz-Badge */}
+                                    {isUncertain && (
+                                        <div
+                                            role="note"
+                                            aria-label="Bitte verifizieren"
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                padding: '4px 10px',
+                                                borderRadius: '999px',
+                                                background: 'rgba(255,255,255,0.05)',
+                                                border: '1px solid rgba(255,255,255,0.12)',
+                                                fontSize: '11px',
+                                                color: 'rgba(255,255,255,0.45)',
+                                                alignSelf: 'flex-start',
+                                            }}
+                                        >
+                                            <span>🤔</span>
+                                            <span>Bitte verifizieren — MIMI ist sich nicht vollständig sicher</span>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </>
                 )}
             </div>

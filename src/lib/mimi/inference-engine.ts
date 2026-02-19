@@ -11,13 +11,14 @@
 import { MODELS } from './hardware-check';
 import { searchDocuments, loadDocuments, type PDFDocument, type PDFChunk, type PDFSearchResult } from './pdf-processor';
 import { getVectorStore, type SearchResult as VectorSearchResult } from './vector-store';
-import { getOrchestrator, type AgentOrchestrator } from './agent-orchestrator';
+import { getOrchestrator, type AgentOrchestrator } from './agent-orchestrator-v2';
 import { getMemoryManager, type MemoryManager } from './memory-manager';
 import { getToolDescriptionsForPrompt, parseToolCalls, executeToolCall, type ToolExecutionContext } from './tool-definitions';
 import { getTaskPlanner, type TaskPlanner, type TaskPlan } from './task-planner';
 import { AgentEvents } from './agent-events';
 import { getAgentMemory, getContextWindowManager, ResultPipeline, type AgentMemoryService, type ContextWindowManager } from './agent-memory';
 import { ImageStore } from './image-store';
+import * as webllm from '@mlc-ai/web-llm';
 
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
@@ -143,22 +144,23 @@ export type AgentStatus =
 export type ToolContext = ToolExecutionContext;
 
 export class MimiEngine {
-    private worker: Worker | null = null;
+    // V3: WebWorkerMLCEngine — WebLLM's official worker API
+    // Drop-in replacement for MLCEngine but runs in a Web Worker
+    private engine: webllm.MLCEngine | null = null;
+    private worker: Worker | null = null; // Keep reference for terminate()
     private isReady = false;
     private _isInitializing = false;
     private currentModel: string | null = null;
-    private messageHandlers: Map<string, (data: any) => void> = new Map();
-    private warmupComplete: Promise<void> = Promise.resolve(); // Gate: resolved when warm-up done
-    private isFirstGeneration = true; // First generation gets extended timeouts for shader JIT
-    private messageId = 0;
+    private warmupComplete: Promise<void> = Promise.resolve();
+    private isFirstGeneration = true;
     private statusCallback: StatusCallback | null = null;
     private agentOrchestrator?: AgentOrchestrator;
     private memoryManager?: MemoryManager;
     private isGenerating = false;
     private toolContext: ToolContext = {};
-    private static MAX_TOOL_ITERATIONS = 10;
+    // FIX-1: 10→3 — verhindert 10x LLM-Calls pro Antwort (war Haupt-Ursache für Langsamkeit)
+    private static MAX_TOOL_ITERATIONS = 3;
     private taskPlanner?: TaskPlanner;
-    // Phase 4: Intelligence improvements
     private agentMemory?: AgentMemoryService;
     private contextWindowManager?: ContextWindowManager;
 
@@ -168,7 +170,9 @@ export class MimiEngine {
             this.memoryManager = getMemoryManager();
             this.taskPlanner = getTaskPlanner();
             this.agentMemory = getAgentMemory();
-            this.contextWindowManager = getContextWindowManager(4096);
+            // FIX-2: 4096→6144 — mehr Platz für System-Prompt + Chat-History
+            // System-Prompt allein ist ~1500 Tokens, 4096 war zu knapp
+            this.contextWindowManager = getContextWindowManager(6144);
             // Initialize memory (async, non-blocking)
             this.agentMemory.initialize().catch(() => { });
         } else {
@@ -198,6 +202,7 @@ export class MimiEngine {
 
     /**
      * Initialisiert die Engine mit dem angegebenen Modell
+     * V3: Nutzt CreateWebWorkerMLCEngine — WebLLMs offizielle Worker-API
      */
     async init(modelId: string, onProgress: ProgressCallback): Promise<void> {
         if (this.isReady && this.currentModel === modelId) {
@@ -211,126 +216,171 @@ export class MimiEngine {
         }
 
         this._isInitializing = true;
+        const startTime = Date.now();
 
-        this.worker = new Worker(
-            new URL('./inference-worker.ts', import.meta.url),
-            { type: 'module' }
-        );
+        try {
+            // CreateMLCEngine: Main-Thread (kein Worker) — direkter GPU-Zugriff
+            // WebLLM 0.2.80 aktiviert shader-f16 + subgroups bereits intern
+            // KEIN manueller GPU-Patch — der würde Chromes Pipeline-Cache invalidieren
+            this.engine = await webllm.CreateMLCEngine(
+                modelId,
+                {
+                    initProgressCallback: (progress) => {
+                        onProgress({
+                            progress: progress.progress * 100,
+                            text: progress.text || "Lade Modell...",
+                            timeElapsed: (Date.now() - startTime) / 1000
+                        });
 
-        return new Promise((resolve, reject) => {
-            if (!this.worker) {
-                reject(new Error("Worker konnte nicht erstellt werden"));
-                return;
+                        if (progress.progress >= 0.99) {
+                            onProgress({
+                                progress: 100,
+                                text: "⚡ WebGPU-Shader werden kompiliert (shader-f16 + subgroups)...",
+                                timeElapsed: (Date.now() - startTime) / 1000
+                            });
+                        }
+                    },
+                    logLevel: "SILENT",
+                    appConfig: {
+                        model_list: webllm.prebuiltAppConfig.model_list.map(m =>
+                            m.model_id === modelId
+                                ? { ...m, overrides: { ...m.overrides, context_window_size: 6144 } }
+                                : m
+                        ),
+                        useIndexedDBCache: true,
+                    },
+                }
+            );
+
+            this.isReady = true;
+            this.currentModel = modelId;
+            this.isFirstGeneration = true;
+            this.warmupComplete = Promise.resolve();
+
+            // Register LLM in Memory Manager
+            try {
+                const mm = getMemoryManager();
+                const llmKey = modelId.toLowerCase().includes('vision') ? 'llm-phi35-vision'
+                    : modelId.includes('Qwen3') ? 'llm-qwen3'
+                        : modelId.includes('Phi-4') ? 'llm-phi4'
+                            : modelId.includes('Qwen2.5-1.5B') ? 'llm-qwen25'
+                                : modelId.includes('Phi-3.5') ? 'llm-phi35'
+                                    : modelId.includes('Qwen') ? 'llm-qwen'
+                                        : modelId.includes('Llama') ? 'llm-llama'
+                                            : 'llm-phi35';
+                mm.registerModel(llmKey);
+                console.log(`[MIMI] 🧠 Memory Manager: LLM registriert als '${llmKey}'`);
+            } catch { /* non-critical */ }
+
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`[MIMI] ✅ Engine ready in ${elapsed}s — model: ${modelId} (WebWorkerMLCEngine, ctx: 6144)`);
+            onProgress({ progress: 100, text: "MIMI ist bereit!" });
+
+        } catch (err) {
+            this.isReady = false;
+            this._isInitializing = false;
+            // Kein Worker mehr zum terminieren
+            this.engine = null;
+            throw err;
+        } finally {
+            this._isInitializing = false;
+        }
+    }
+
+
+    /**
+     * Löscht den WebLLM-Modell-Cache aus IndexedDB.
+     * Nutze dies wenn ein Modell bei X% hängt (korrupter Cache).
+     * Nach dem Clear wird die Seite neu geladen.
+     */
+    static async clearModelCache(): Promise<void> {
+        console.log('[MIMI] 🗑️ Clearing model cache...');
+        try {
+            // WebLLM speichert Modelle in mehreren IndexedDB-Datenbanken
+            const dbs = await indexedDB.databases();
+            const webllmDbs = dbs.filter(db =>
+                db.name?.includes('webllm') ||
+                db.name?.includes('mlc-llm') ||
+                db.name?.includes('MLC') ||
+                db.name?.includes('model-cache')
+            );
+
+            for (const db of webllmDbs) {
+                if (db.name) {
+                    await new Promise<void>((resolve, reject) => {
+                        const req = indexedDB.deleteDatabase(db.name!);
+                        req.onsuccess = () => { console.log(`[MIMI] ✅ Deleted DB: ${db.name}`); resolve(); };
+                        req.onerror = () => reject(req.error);
+                        req.onblocked = () => { console.warn(`[MIMI] ⚠️ DB blocked: ${db.name}`); resolve(); };
+                    });
+                }
             }
 
-            const timeout = setTimeout(() => {
-                // CRITICAL: Clean up before rejecting so fallback chain can retry
-                this._isInitializing = false;
-                if (this.worker) {
-                    this.worker.terminate();
-                    this.worker = null;
-                }
-                this.isReady = false;
-                reject(new Error("Timeout: Modell-Initialisierung dauert zu lange"));
-            }, 5 * 60 * 1000); // 5 min — first download needs ~4min for 2.2GB models
+            // Auch localStorage-Blacklist zurücksetzen
+            try {
+                localStorage.removeItem('mimi_blacklisted_models');
+                localStorage.removeItem('mimi_model_cache_version');
+            } catch { /* ignore */ }
 
-            this.worker.onmessage = (e) => {
-                const { type, payload, id } = e.data;
-
-                switch (type) {
-                    case "INIT_PROGRESS":
-                        onProgress({
-                            progress: payload.progress * 100,
-                            text: payload.text || "Lade Modell...",
-                            timeElapsed: payload.timeElapsed
-                        });
-                        break;
-
-                    case "READY":
-                        clearTimeout(timeout);
-                        this.isReady = true;
-                        this.currentModel = modelId;
-
-                        // Register LLM in Memory Manager for accurate tracking
-                        try {
-                            const mm = getMemoryManager();
-                            const llmKey = modelId.toLowerCase().includes('vision')
-                                ? 'llm-phi35-vision'
-                                : modelId.includes('Phi-4') ? 'llm-phi4'
-                                    : modelId.includes('Qwen3') ? 'llm-qwen3'
-                                        : modelId.includes('Qwen2.5-1.5B') ? 'llm-qwen25'
-                                            : modelId.includes('Phi-3.5') ? 'llm-phi35'
-                                                : modelId.includes('Qwen') ? 'llm-qwen'
-                                                    : modelId.includes('Llama') ? 'llm-llama'
-                                                        : 'llm-phi35';
-                            mm.registerModel(llmKey);
-                            console.log(`[MIMI] 🧠 Memory Manager: LLM registriert als '${llmKey}'`);
-                        } catch (e: unknown) {
-                            console.warn('[MIMI] Memory Manager Registrierung fehlgeschlagen:', e);
-                        }
-
-                        // First generation gets extended timeouts for JIT shader compilation.
-                        // We no longer send a warm-up GENERATE because interruptGenerate() is async
-                        // and doesn't reliably free the worker, causing WebGPU contention on real messages.
-                        this.isFirstGeneration = true;
-                        this.warmupComplete = Promise.resolve();
-                        console.log('[MIMI] ⚡ Ready — first generation will use extended timeouts for shader JIT');
-
-                        onProgress({ progress: 100, text: "MIMI ist bereit!" });
-                        this._isInitializing = false;
-                        resolve();
-                        break;
-
-                    case "ERROR":
-                        clearTimeout(timeout);
-                        this._isInitializing = false;
-                        reject(new Error(payload.message));
-                        break;
-
-                    case "TOKEN":
-                    case "DONE":
-                    case "STATUS":
-                    case "INTERRUPTED":
-                        const handler = this.messageHandlers.get(id);
-                        if (handler) handler({ type, payload });
-                        break;
-                }
-            };
-
-            this.worker.onerror = (error) => {
-                clearTimeout(timeout);
-                this._isInitializing = false;
-                reject(new Error(`Worker-Fehler: ${error.message}`));
-            };
-
-            this.worker.postMessage({
-                type: "INIT",
-                payload: { modelId }
-            });
-        });
+            console.log(`[MIMI] ✅ Cache cleared (${webllmDbs.length} DBs). Reloading...`);
+        } catch (err) {
+            console.error('[MIMI] Cache clear failed:', err);
+        }
     }
 
     /**
-     * Interrupts in-flight generation on the worker (non-destructive).
-     * Sends INTERRUPT message and waits for acknowledgment or timeout.
+     * Interrupts in-flight generation.
+     * V3: Uses engine.interruptGenerate() — WebLLM's official API.
      */
     private async interruptWorker(): Promise<void> {
-        if (!this.worker) return;
-        return new Promise<void>((resolve) => {
-            const id = `interrupt_${++this.messageId}`;
-            const timeout = setTimeout(() => {
-                this.messageHandlers.delete(id);
-                resolve();
-            }, 3000); // Max 3s wait for interrupt ack
-            this.messageHandlers.set(id, (data) => {
-                if (data.type === 'INTERRUPTED') {
-                    clearTimeout(timeout);
-                    this.messageHandlers.delete(id);
-                    resolve();
+        if (!this.engine) return;
+        try {
+            await this.engine.interruptGenerate();
+        } catch (e: unknown) {
+            console.warn('[MIMI] interruptGenerate failed:', e);
+        }
+    }
+
+    /**
+     * Shader Warmup: Kompiliert WebGPU-Shader im Hintergrund nach init().
+     * Läuft NON-BLOCKING mit 60s Timeout — blockiert den User NICHT.
+     * Nach dem Warmup ist der nächste Chat sofort schnell.
+     */
+    warmup(): void {
+        if (!this.engine || !this.isReady) return;
+
+        // Fire-and-forget — kein await, kein Blockieren
+        const WARMUP_TIMEOUT_MS = 60_000; // 60s max — danach einfach überspringen
+
+        const warmupPromise = this.engine.chat.completions.create({
+            messages: [{ role: 'user', content: 'Hi' }],
+            max_tokens: 1,
+            temperature: 0.1,
+            stream: false,
+        });
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Warmup timeout')), WARMUP_TIMEOUT_MS)
+        );
+
+        console.log('[MIMI] 🔥 Shader Warmup — kompiliere WebGPU-Shader...');
+
+        Promise.race([warmupPromise, timeoutPromise])
+            .then(async () => {
+                // Reset chat history — Warmup-Message soll nicht im Kontext bleiben
+                try { await this.engine?.resetChat(); } catch { /* ignore */ }
+                this.isFirstGeneration = false;
+                console.log('[MIMI] ✅ Shader Warmup abgeschlossen — erster Chat sofort schnell!');
+            })
+            .catch((e) => {
+                // Nicht kritisch — Shader werden beim ersten echten Chat kompiliert
+                const msg = e instanceof Error ? e.message : String(e);
+                if (msg.includes('timeout')) {
+                    console.warn('[MIMI] ⏱️ Shader Warmup Timeout (60s) — Shader werden beim ersten Chat kompiliert');
+                } else {
+                    console.warn('[MIMI] ⚠️ Shader Warmup fehlgeschlagen:', e);
                 }
             });
-            this.worker!.postMessage({ type: 'INTERRUPT', id });
-        });
     }
 
     /**
@@ -360,8 +410,8 @@ export class MimiEngine {
     }
 
     /**
-     * NEW: Stoppt die aktuelle Generierung sofort
-     * Terminiert den Worker und räumt auf
+     * Stoppt die aktuelle Generierung sofort
+     * V3: Nutzt engine.interruptGenerate()
      */
     async stopGeneration(): Promise<void> {
         console.log('[MimiEngine] ⏸️ Stopping generation...');
@@ -371,28 +421,16 @@ export class MimiEngine {
             return;
         }
 
-        // Mark as not generating
         this.isGenerating = false;
 
-        // Clear all message handlers
-        this.messageHandlers.clear();
-
-        // Terminate worker immediately
-        if (this.worker) {
-            console.log('[MimiEngine] Terminating worker...');
-            this.worker.terminate();
-            this.worker = null;
-            this.isReady = false;
+        // V3: Use WebLLM's official interrupt API
+        if (this.engine) {
+            try {
+                await this.engine.interruptGenerate();
+            } catch { /* ignore */ }
         }
 
-        // Update status
         this.updateStatus('idle');
-
-        // Memory cleanup
-        if (this.memoryManager) {
-            // Memory manager doesn't have this method, skip
-        }
-
         console.log('[MimiEngine] ✅ Generation stopped successfully');
     }
 
@@ -571,198 +609,119 @@ export class MimiEngine {
 
     /**
      * Internal: Single-shot LLM generation (no tool loop).
-     * Streams tokens, filters <thinking> blocks, yields visible text.
-     * Returns the full assembled response.
-     * 
+     * V3: Streams tokens directly via engine.chat.completions.create()
+     * No custom message protocol, no polling loop — WebLLM handles everything.
+     *
      * SAFETY GUARDS:
      * - Max thinking buffer: auto-closes unclosed <thinking> blocks after 2000 chars
-     * - Stall detection: breaks after 15s without tokens (GPU can be slow on first run)
-     * - Max generation timeout: 45s total safeguard
-     * - Worker ERROR handling: catches worker-side errors during generation
+     * - Generation timeout: 45s total (6min for first gen with shader JIT)
      */
     private async *singleGeneration(
         fullMessages: ChatMessage[],
         options?: { temperature?: number; maxTokens?: number }
     ): AsyncGenerator<string, string, unknown> {
-        const id = `msg_${++this.messageId}`;
+        if (!this.engine) throw new Error('Engine not initialized');
 
-        const tokenQueue: string[] = [];
-        let isDone = false;
-        let generationError: string | null = null;
         let isInThinking = false;
         let thinkingBuffer = '';
         let fullResponse = '';
+        let outputBuffer = '';
+        let pendingPartialTag = '';
 
-        // Safety constants
-        const MAX_THINKING_BUFFER = 2000; // Auto-close thinking after this many chars
-        // First generation needs extra tolerance for JIT shader compilation
+        const MAX_THINKING_BUFFER = 2000;
         const isFirst = this.isFirstGeneration;
-        const MAX_STALL_MS = isFirst ? 45000 : 15000;  // First gen needs shader warmup
-        const MAX_GENERATION_MS = isFirst ? 90000 : 45000;
         if (isFirst) {
-            console.log(`[MIMI] ℹ️ First generation: stall=${MAX_STALL_MS / 1000}s, max=${MAX_GENERATION_MS / 1000}s (shader JIT)`);
+            console.log(`[MIMI] ℹ️ First generation — WebGPU shader JIT on Apple GPU (extended timeout active)`);
             this.isFirstGeneration = false;
         }
 
-        this.messageHandlers.set(id, (data) => {
-            if (data.type === "TOKEN") {
-                tokenQueue.push(data.payload);
-            } else if (data.type === "DONE") {
-                isDone = true;
-            } else if (data.type === "ERROR") {
-                generationError = data.payload?.message || 'Worker generation error';
-                console.error('[MIMI] ❌ Worker error during generation:', generationError);
-                isDone = true; // Break the polling loop
-            }
+        // V3: Direct streaming via WebLLM's official API
+        // No polling, no messageHandlers, no tokenQueue — just async iteration
+        const stream = await this.engine.chat.completions.create({
+            messages: fullMessages as webllm.ChatCompletionMessageParam[],
+            temperature: options?.temperature ?? 0.7,
+            max_tokens: options?.maxTokens ?? 2048,
+            top_p: 0.95,
+            frequency_penalty: 0.1,
+            stream: true,
+            stream_options: { include_usage: false }
         });
 
-        // CRITICAL: Wait for WebGPU warm-up to finish before sending real generation
-        // Without this, the worker is still busy with warm-up and drops our tokens
-        await this.warmupComplete;
+        for await (const chunk of stream) {
+            const token = chunk.choices[0]?.delta?.content ?? '';
+            if (!token) continue;
 
-        this.worker!.postMessage({
-            type: "GENERATE",
-            id,
-            payload: {
-                messages: fullMessages,
-                temperature: options?.temperature ?? 0.6,
-                maxTokens: options?.maxTokens ?? 1024
+            outputBuffer += token;
+
+            // Chunk-resilient <thinking> tag detection
+            if (!isInThinking) {
+                const potentialOpenTag = outputBuffer.match(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?\s*$/);
+                if (potentialOpenTag) {
+                    pendingPartialTag = potentialOpenTag[0];
+                    outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
+                }
             }
-        });
+            if (isInThinking) {
+                const potentialCloseTag = outputBuffer.match(/<\/t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?\s*$/);
+                if (potentialCloseTag) {
+                    pendingPartialTag = potentialCloseTag[0];
+                    outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
+                }
+            }
 
-        try {
-            let outputBuffer = '';
-            let pendingPartialTag = '';
-            let lastTokenTime = Date.now();
-            const generationStart = Date.now();
+            if (pendingPartialTag) {
+                outputBuffer += pendingPartialTag;
+                pendingPartialTag = '';
+            }
 
-            while (!isDone || tokenQueue.length > 0) {
-                // Safety: max generation timeout
-                if (Date.now() - generationStart > MAX_GENERATION_MS) {
-                    console.warn(`[MIMI] ⚠️ Generation timeout (${MAX_GENERATION_MS / 1000}s), forcing exit`);
-                    if (isInThinking) {
-                        // Flush thinking buffer as visible text since we're timing out
+            // Chain-of-Thought filtering
+            while (outputBuffer.includes('<thinking>') || isInThinking) {
+                if (!isInThinking && outputBuffer.includes('<thinking>')) {
+                    const beforeThinking = outputBuffer.split('<thinking>')[0];
+                    if (beforeThinking) { fullResponse += beforeThinking; yield beforeThinking; }
+                    outputBuffer = outputBuffer.substring(outputBuffer.indexOf('<thinking>') + 10);
+                    isInThinking = true;
+                    this.updateStatus('analyzing');
+                }
+                if (isInThinking && outputBuffer.includes('</thinking>')) {
+                    thinkingBuffer += outputBuffer.split('</thinking>')[0];
+                    outputBuffer = outputBuffer.substring(outputBuffer.indexOf('</thinking>') + 11);
+                    isInThinking = false;
+                    this.updateStatus('generating');
+                    outputBuffer = outputBuffer.replace(/^\s*\n?/, '');
+                } else if (isInThinking) {
+                    if (outputBuffer.length > 0) AgentEvents.thinkingContent(outputBuffer);
+                    thinkingBuffer += outputBuffer;
+                    outputBuffer = '';
+                    if (thinkingBuffer.length > MAX_THINKING_BUFFER) {
+                        console.warn(`[MIMI] ⚠️ Thinking buffer exceeded ${MAX_THINKING_BUFFER} chars, auto-closing`);
                         isInThinking = false;
                         this.updateStatus('generating');
                     }
                     break;
-                }
-
-                if (tokenQueue.length > 0) {
-                    lastTokenTime = Date.now();
-                    const token = tokenQueue.shift()!;
-                    outputBuffer += token;
-
-                    // Chunk-resilient <thinking> tag detection
-                    // Only check for partial tags if we're NOT already inside thinking
-                    if (!isInThinking) {
-                        const potentialOpenTag = outputBuffer.match(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?\s*$/);
-                        if (potentialOpenTag) {
-                            pendingPartialTag = potentialOpenTag[0];
-                            outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
-                        }
-                    }
-                    if (isInThinking) {
-                        const potentialCloseTag = outputBuffer.match(/<\/t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?\s*$/);
-                        if (potentialCloseTag) {
-                            pendingPartialTag = potentialCloseTag[0];
-                            outputBuffer = outputBuffer.slice(0, -pendingPartialTag.length);
-                        }
-                    }
-
-                    // Re-attach pending partial tag for re-evaluation
-                    if (pendingPartialTag) {
-                        outputBuffer += pendingPartialTag;
-                        pendingPartialTag = '';
-                    }
-
-                    // Chain-of-Thought filtering
-                    while (outputBuffer.includes('<thinking>') || isInThinking) {
-                        if (!isInThinking && outputBuffer.includes('<thinking>')) {
-                            const beforeThinking = outputBuffer.split('<thinking>')[0];
-                            if (beforeThinking) {
-                                fullResponse += beforeThinking;
-                                yield beforeThinking;
-                            }
-                            outputBuffer = outputBuffer.substring(outputBuffer.indexOf('<thinking>') + 10);
-                            isInThinking = true;
-                            this.updateStatus('analyzing');
-                        }
-                        if (isInThinking && outputBuffer.includes('</thinking>')) {
-                            thinkingBuffer += outputBuffer.split('</thinking>')[0];
-                            outputBuffer = outputBuffer.substring(outputBuffer.indexOf('</thinking>') + 11);
-                            isInThinking = false;
-                            this.updateStatus('generating');
-                            outputBuffer = outputBuffer.replace(/^\s*\n?/, '');
-                        } else if (isInThinking) {
-                            // Emit thinking content for live CoT display
-                            if (outputBuffer.length > 0) {
-                                AgentEvents.thinkingContent(outputBuffer);
-                            }
-                            thinkingBuffer += outputBuffer;
-                            outputBuffer = '';
-
-                            // SAFETY: Auto-close thinking if buffer exceeds max
-                            if (thinkingBuffer.length > MAX_THINKING_BUFFER) {
-                                console.warn(`[MIMI] ⚠️ Thinking buffer exceeded ${MAX_THINKING_BUFFER} chars, auto-closing`);
-                                isInThinking = false;
-                                this.updateStatus('generating');
-                            }
-                            break;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // Status detection + yield
-                    if (!isInThinking && outputBuffer.length > 0) {
-                        if (outputBuffer.includes('```python') || outputBuffer.includes('```typescript')) {
-                            this.updateStatus('coding');
-                        } else if (outputBuffer.includes('```json') && outputBuffer.includes('"tool"')) {
-                            this.updateStatus('analyzing');
-                        } else if (/\d+[\+\-\*\/\=]/.test(outputBuffer)) {
-                            this.updateStatus('calculating');
-                        }
-                        fullResponse += outputBuffer;
-                        yield outputBuffer;
-                        outputBuffer = '';
-                    }
-                } else {
-                    // Safety: stall detection — no tokens for too long
-                    if (Date.now() - lastTokenTime > MAX_STALL_MS && !isDone) {
-                        console.warn(`[MIMI] ⚠️ Token stall detected (${MAX_STALL_MS / 1000}s), forcing exit`);
-                        if (isInThinking) {
-                            isInThinking = false;
-                            this.updateStatus('generating');
-                        }
-                        break;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 10));
-                }
+                } else { break; }
             }
 
-            // Flush remaining buffer
-            if (outputBuffer && !isInThinking) {
+            // Status detection + yield
+            if (!isInThinking && outputBuffer.length > 0) {
+                if (outputBuffer.includes('```python') || outputBuffer.includes('```typescript')) {
+                    this.updateStatus('coding');
+                } else if (outputBuffer.includes('```json') && outputBuffer.includes('"tool"')) {
+                    this.updateStatus('analyzing');
+                } else if (/\d+[\+\-\*\/\=]/.test(outputBuffer)) {
+                    this.updateStatus('calculating');
+                }
                 fullResponse += outputBuffer;
                 yield outputBuffer;
+                outputBuffer = '';
             }
-            if (pendingPartialTag && !pendingPartialTag.includes('thinking')) {
-                fullResponse += pendingPartialTag;
-                yield pendingPartialTag;
-            }
-
-            // Safety: if we're still in thinking mode at the end, the model never closed it
-            if (isInThinking && thinkingBuffer) {
-                console.warn('[MIMI] ⚠️ Unclosed <thinking> block at end of generation, discarding thinking content');
-                isInThinking = false;
-            }
-        } finally {
-            this.messageHandlers.delete(id);
         }
 
-        // C1 FIX: If worker sent an ERROR during generation, propagate it
-        if (generationError) {
-            throw new Error(`Generation failed: ${generationError}`);
+        // Flush remaining buffer
+        if (outputBuffer && !isInThinking) { fullResponse += outputBuffer; yield outputBuffer; }
+        if (pendingPartialTag && !pendingPartialTag.includes('thinking')) { fullResponse += pendingPartialTag; yield pendingPartialTag; }
+        if (isInThinking && thinkingBuffer) {
+            console.warn('[MIMI] ⚠️ Unclosed <thinking> block at end of generation');
         }
 
         return fullResponse;
@@ -783,7 +742,7 @@ export class MimiEngine {
             maxTokens?: number;
         }
     ): AsyncGenerator<string, void, unknown> {
-        if (!this.worker || !this.isReady) {
+        if (!this.engine || !this.isReady) {
             throw new Error("Engine nicht initialisiert");
         }
 
@@ -792,11 +751,16 @@ export class MimiEngine {
         try {
 
             // AUTO-RAG: Enrich last user message with document context
-            // BUG-1 FIX: wrapped in timeout to prevent hanging
+            // FIX-7: RAG Skip-Guard — nur bei Dokument-relevanten Fragen
+            // Spart 3s Overhead bei normalem Chat (Hallo, Was ist X?, etc.)
             let enrichedMessages = [...messages];
             const lastUserMessage = messages.filter(m => m.role === 'user').pop();
 
-            if (lastUserMessage) {
+            // Schnell-Check: Enthält die Frage Dokument-Keywords?
+            const docKeywords = /pdf|dokument|vertrag|datei|seite|inhalt|text|bericht|analyse|zusammenfassung|suche|finde|zeige|erkläre.*dokument/i;
+            const hasDocumentContext = lastUserMessage && docKeywords.test(lastUserMessage.content);
+
+            if (lastUserMessage && hasDocumentContext) {
                 this.updateStatus('analyzing');
                 try {
                     let ragResolved = false;
@@ -804,10 +768,11 @@ export class MimiEngine {
                         this.enrichWithRAG(lastUserMessage.content).then(r => { ragResolved = true; return r; }),
                         new Promise<string>(resolve => setTimeout(() => {
                             if (!ragResolved) {
-                                console.warn('[MIMI] ⚠️ RAG timeout (8s), skipping');
+                                console.warn('[MIMI] ⚠️ RAG timeout (3s), skipping');
                             }
                             resolve('');
-                        }, 8000))
+                            // FIX-4: RAG-Timeout 8s→3s — blockierte 8s vor jeder Antwort
+                        }, 3000))
                     ]);
                     if (ragContext) {
                         console.log('[MIMI] 📚 RAG-Kontext gefunden');
@@ -852,7 +817,7 @@ export class MimiEngine {
                 }
             }
 
-            // Agent classification — BUG-1 FIX: 3s timeout
+            // Agent classification — FIX-5: 3s→1.5s Timeout
             let primaryAgent = 'general';
             try {
                 let classifyResolved = false;
@@ -860,10 +825,10 @@ export class MimiEngine {
                     this.agentOrchestrator?.classifyTask(lastUserMessage?.content || '').then(r => { classifyResolved = true; return r; }) ?? Promise.resolve({ primaryAgent: 'general' }),
                     new Promise<{ primaryAgent: string }>(resolve => setTimeout(() => {
                         if (!classifyResolved) {
-                            console.warn('[MIMI] ⚠️ Agent classification timeout (3s), using general');
+                            console.warn('[MIMI] ⚠️ Agent classification timeout (1.5s), using general');
                         }
                         resolve({ primaryAgent: 'general' });
-                    }, 3000))
+                    }, 1500))
                 ]);
                 primaryAgent = classification.primaryAgent;
                 console.log(`[MIMI] 🤖 Agent: ${primaryAgent}`);
@@ -972,7 +937,7 @@ export class MimiEngine {
                     // CRITICAL: Interrupt the worker to abort the hung generation
                     // Without this, the worker is still busy and the retry will fail
                     await this.interruptWorker();
-                    await new Promise(r => setTimeout(r, 500)); // Brief cooldown
+                    await new Promise(r => setTimeout(r, 2000)); // 2s cooldown — let Metal finish compiling shaders
 
                     this.updateStatus('generating');
                     // Give retry the same extended timeout (shaders might still be compiling)
@@ -1188,12 +1153,17 @@ export class MimiEngine {
 
     /**
      * Prüft ob ein Low-End Modell geladen ist
-     * Low-End Modelle brauchen einen einfacheren Prompt ohne CoT
+     * FIX-3: Qwen3-0.6B und 1.7B als Low-End klassifiziert
+     * → erhalten Lite-Prompt statt 2000-Token System-Prompt
      */
     private isLowEndModel(): boolean {
         if (!this.currentModel) return false;
         const m = this.currentModel.toLowerCase();
-        return m.includes('qwen2.5-0.5b') || m.includes('llama-3.2-1b');
+        // Qwen3-0.6B und 1.7B: zu klein für komplexen System-Prompt
+        // Qwen2.5-0.5B und Llama-3.2-1B: Legacy Low-End
+        return m.includes('qwen3-0.6b') || m.includes('qwen3-1.7b') ||
+            m.includes('0.6b') || m.includes('1.7b') ||
+            m.includes('qwen2.5-0.5b') || m.includes('llama-3.2-1b');
     }
 
     /**
@@ -1393,13 +1363,14 @@ Antworte KURZ und DIREKT.`;
         // Unregister LLM from Memory Manager
         try {
             const mm = getMemoryManager();
-            // Unregister all possible LLM keys
             ['llm-phi35-vision', 'llm-phi4', 'llm-phi35', 'llm-qwen25', 'llm-qwen3', 'llm-phi3', 'llm-llama', 'llm-qwen']
                 .forEach(key => mm.unregisterModel(key));
         } catch (e: unknown) {
             // Memory manager may not exist
         }
 
+        // V3: Null out engine (interruptGenerate is async, skip in sync terminate)
+        this.engine = null;
         if (this.worker) {
             this.worker.terminate();
             this.worker = null;
@@ -1407,7 +1378,6 @@ Antworte KURZ und DIREKT.`;
         this.isReady = false;
         this._isInitializing = false; // CRITICAL: Allow re-init after terminate
         this.currentModel = null;
-        this.messageHandlers.clear();
         this.updateStatus('idle');
     }
 

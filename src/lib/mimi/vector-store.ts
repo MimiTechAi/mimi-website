@@ -4,9 +4,11 @@
  * 
  * In-Browser Embedding und Similarity Search für RAG.
  * Nutzt Transformers.js für lokale Embeddings.
+ * 🔥 Storage unified via Dexie.js (MimiPortalDB) — no more raw IndexedDB!
  */
 
 import type { PDFChunk, PDFDocument } from './pdf-processor';
+import { db } from '@/lib/local-db';
 
 // Dynamic import für Transformers.js
 let pipeline: any = null;
@@ -364,55 +366,22 @@ class VectorStore {
     }
 
     /**
-     * Speichert Vektoren in IndexedDB
+     * Speichert Vektoren in Dexie (IndexedDB)
      */
     private async save(): Promise<void> {
-        const db = await this.openDB();
-        const tx = db.transaction('vectors', 'readwrite');
-        const store = tx.objectStore('vectors');
-        await store.clear();
-
-        for (const vector of this.vectors) {
-            await store.add(vector);
-        }
+        await db.mimiVectors.clear();
+        await db.mimiVectors.bulkAdd(this.vectors);
     }
 
     /**
-     * Lädt Vektoren aus IndexedDB
+     * Lädt Vektoren aus Dexie (IndexedDB)
      */
     async load(): Promise<void> {
         try {
-            const db = await this.openDB();
-            const tx = db.transaction('vectors', 'readonly');
-            const store = tx.objectStore('vectors');
-
-            this.vectors = await new Promise((resolve, reject) => {
-                const request = store.getAll();
-                request.onsuccess = () => resolve(request.result || []);
-                request.onerror = () => reject(request.error);
-            });
+            this.vectors = await db.mimiVectors.toArray();
         } catch {
             this.vectors = [];
         }
-    }
-
-    /**
-     * Öffnet IndexedDB
-     */
-    private async openDB(): Promise<IDBDatabase> {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open('MimiVectors', 1);
-
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => resolve(request.result);
-
-            request.onupgradeneeded = (event) => {
-                const db = (event.target as IDBOpenDBRequest).result;
-                if (!db.objectStoreNames.contains('vectors')) {
-                    db.createObjectStore('vectors', { autoIncrement: true });
-                }
-            };
-        });
     }
 
     /**

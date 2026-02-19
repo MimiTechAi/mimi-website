@@ -1,11 +1,14 @@
 /**
  * MIMI Agent - Chat History Service
  * 
- * Persistente Chat-History via OPFS (Origin Private File System).
- * Speichert Conversations als JSON-Dateien in einem dedizierten Verzeichnis.
+ * Persistente Chat-History via Dexie.js (IndexedDB).
+ * 🔥 Unified via MimiPortalDB — replaces OPFS file-per-conversation approach.
  * 
  * © 2026 MIMI Tech AI. All rights reserved.
  */
+
+import { db } from '@/lib/local-db';
+import type { MimiConversation, MimiConversationMessage } from '@/lib/local-db';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -42,7 +45,6 @@ export interface ConversationSummary {
 
 // ─── Constants ───────────────────────────────────────────────────
 
-const HISTORY_DIR = '.mimi-chat-history';
 const ACTIVE_CONVERSATION_KEY = 'mimi-active-conversation-id';
 const MAX_TITLE_LENGTH = 50;
 const MAX_PREVIEW_LENGTH = 80;
@@ -50,15 +52,13 @@ const MAX_PREVIEW_LENGTH = 80;
 // ─── Service ─────────────────────────────────────────────────────
 
 class ChatHistoryService {
-    private rootHandle: FileSystemDirectoryHandle | null = null;
-    private historyHandle: FileSystemDirectoryHandle | null = null;
     private initialized = false;
     private initPromise: Promise<void> | null = null;
     private saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private pendingSaveData = new Map<string, SerializedMessage[]>();
 
     /**
-     * Initialize OPFS directory for chat history.
-     * Uses its own dedicated directory, independent of MimiFilesystem.
+     * Initialize — Dexie handles connection automatically.
      */
     async init(): Promise<void> {
         if (this.initialized) return;
@@ -70,21 +70,29 @@ class ChatHistoryService {
 
     private async _doInit(): Promise<void> {
         try {
-            if (typeof navigator === 'undefined' || !navigator.storage) {
-                console.warn('[ChatHistory] OPFS not available (SSR or unsupported browser)');
+            if (typeof window === 'undefined') {
                 return;
             }
 
-            this.rootHandle = await navigator.storage.getDirectory();
-            this.historyHandle = await this.rootHandle.getDirectoryHandle(
-                HISTORY_DIR,
-                { create: true }
-            );
+            // Dexie auto-opens — just verify the tables exist
+            await db.mimiConversations.count();
             this.initialized = true;
-            console.log('[ChatHistory] Initialized OPFS storage');
+            this.registerBeforeUnload();
+            console.log('[ChatHistory] ✅ Initialized via Dexie');
         } catch (err) {
             console.error('[ChatHistory] Failed to initialize:', err);
         }
+    }
+
+    /**
+     * Register beforeunload handler to flush pending saves on tab close.
+     */
+    private registerBeforeUnload(): void {
+        if (typeof window === 'undefined') return;
+        window.addEventListener('beforeunload', () => {
+            // IndexedDB writes are allowed during unload events
+            void this.flushPendingSaves();
+        });
     }
 
     // ─── CRUD Operations ─────────────────────────────────────────
@@ -98,15 +106,14 @@ class ChatHistoryService {
         const title = this.generateTitle(firstMessage);
         const now = new Date().toISOString();
 
-        const conversation: Conversation = {
+        const conversation: MimiConversation = {
             id,
             title,
-            messages: [],
             createdAt: now,
             updatedAt: now,
         };
 
-        await this.writeConversation(conversation);
+        await db.mimiConversations.put(conversation);
         this.setActiveConversationId(id);
         return id;
     }
@@ -118,8 +125,12 @@ class ChatHistoryService {
         const existing = this.saveTimers.get(id);
         if (existing) clearTimeout(existing);
 
+        // Store the payload so flushPendingSaves() can save it
+        this.pendingSaveData.set(id, messages);
+
         this.saveTimers.set(id, setTimeout(async () => {
             this.saveTimers.delete(id);
+            this.pendingSaveData.delete(id);
             await this.saveConversation(id, messages);
         }, 2000));
     }
@@ -129,23 +140,18 @@ class ChatHistoryService {
      */
     async saveConversation(id: string, messages: SerializedMessage[]): Promise<void> {
         await this.init();
-        if (!this.historyHandle) return;
 
         try {
             // Read existing conversation to preserve metadata
-            const existing = await this.readConversation(id);
-            const conversation: Conversation = existing ?? {
+            const existing = await db.mimiConversations.get(id);
+            const conversation: MimiConversation = existing ?? {
                 id,
                 title: this.generateTitle(
                     messages.find(m => m.role === 'user')?.content ?? 'Neuer Chat'
                 ),
-                messages: [],
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             };
-
-            conversation.messages = messages;
-            conversation.updatedAt = new Date().toISOString();
 
             // Update title if it was "Neuer Chat" and we now have a user message
             if (conversation.title === 'Neuer Chat' && messages.length > 0) {
@@ -155,7 +161,26 @@ class ChatHistoryService {
                 }
             }
 
-            await this.writeConversation(conversation);
+            conversation.updatedAt = new Date().toISOString();
+            await db.mimiConversations.put(conversation);
+
+            // Replace all messages for this conversation
+            await db.mimiMessages
+                .where('conversationId')
+                .equals(id)
+                .delete();
+
+            if (messages.length > 0) {
+                await db.mimiMessages.bulkAdd(
+                    messages.map(msg => ({
+                        conversationId: id,
+                        role: msg.role,
+                        content: msg.content,
+                        timestamp: msg.timestamp,
+                        artifacts: msg.artifacts,
+                    }))
+                );
+            }
         } catch (err) {
             console.error('[ChatHistory] Save failed:', err);
         }
@@ -166,7 +191,30 @@ class ChatHistoryService {
      */
     async loadConversation(id: string): Promise<Conversation | null> {
         await this.init();
-        return this.readConversation(id);
+
+        const conv = await db.mimiConversations.get(id);
+        if (!conv) return null;
+
+        const dbMessages = await db.mimiMessages
+            .where('conversationId')
+            .equals(id)
+            .sortBy('timestamp');
+
+        const messages: SerializedMessage[] = dbMessages.map((msg, idx) => ({
+            id: msg.id?.toString() ?? `msg_${idx}`,
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp,
+            artifacts: msg.artifacts,
+        }));
+
+        return {
+            id: conv.id,
+            title: conv.title,
+            messages,
+            createdAt: conv.createdAt,
+            updatedAt: conv.updatedAt,
+        };
     }
 
     /**
@@ -174,45 +222,40 @@ class ChatHistoryService {
      */
     async listConversations(): Promise<ConversationSummary[]> {
         await this.init();
-        if (!this.historyHandle) return [];
+
+        const conversations = await db.mimiConversations
+            .orderBy('updatedAt')
+            .reverse()
+            .toArray();
 
         const summaries: ConversationSummary[] = [];
 
-        try {
-            // B-10: Typed OPFS directory iteration (entries() is not in base TS typings)
-            type AsyncIterableDirectory = FileSystemDirectoryHandle & {
-                entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
-            };
-            for await (const [name, handle] of (this.historyHandle as AsyncIterableDirectory).entries()) {
-                if (handle.kind !== 'file' || !name.endsWith('.json')) continue;
+        for (const conv of conversations) {
+            const messageCount = await db.mimiMessages
+                .where('conversationId')
+                .equals(conv.id)
+                .count();
 
-                try {
-                    const file: File = await (handle as FileSystemFileHandle).getFile();
-                    const text = await file.text();
-                    const conv: Conversation = JSON.parse(text);
+            // Get first user message for preview
+            const firstUserMsg = await db.mimiMessages
+                .where('conversationId')
+                .equals(conv.id)
+                .filter(m => m.role === 'user')
+                .first();
 
-                    const firstUserMsg = conv.messages.find(m => m.role === 'user');
-                    summaries.push({
-                        id: conv.id,
-                        title: conv.title,
-                        messageCount: conv.messages.length,
-                        createdAt: conv.createdAt,
-                        updatedAt: conv.updatedAt,
-                        preview: firstUserMsg
-                            ? firstUserMsg.content.slice(0, MAX_PREVIEW_LENGTH)
-                            : '',
-                    });
-                } catch {
-                    // Skip corrupted files
-                }
-            }
-        } catch (err) {
-            console.error('[ChatHistory] List failed:', err);
+            summaries.push({
+                id: conv.id,
+                title: conv.title,
+                messageCount,
+                createdAt: conv.createdAt,
+                updatedAt: conv.updatedAt,
+                preview: firstUserMsg
+                    ? firstUserMsg.content.slice(0, MAX_PREVIEW_LENGTH)
+                    : '',
+            });
         }
 
-        return summaries.sort(
-            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
+        return summaries;
     }
 
     /**
@@ -220,11 +263,10 @@ class ChatHistoryService {
      */
     async renameConversation(id: string, newTitle: string): Promise<void> {
         await this.init();
-        const conv = await this.readConversation(id);
-        if (!conv) return;
-        conv.title = newTitle.trim().slice(0, MAX_TITLE_LENGTH) || 'Neuer Chat';
-        conv.updatedAt = new Date().toISOString();
-        await this.writeConversation(conv);
+        await db.mimiConversations.update(id, {
+            title: newTitle.trim().slice(0, MAX_TITLE_LENGTH) || 'Neuer Chat',
+            updatedAt: new Date().toISOString(),
+        });
     }
 
     /**
@@ -232,27 +274,39 @@ class ChatHistoryService {
      */
     async deleteConversation(id: string): Promise<void> {
         await this.init();
-        if (!this.historyHandle) return;
 
-        try {
-            await this.historyHandle.removeEntry(`${id}.json`);
+        // Delete conversation and all its messages
+        await db.transaction('rw', db.mimiConversations, db.mimiMessages, async () => {
+            await db.mimiMessages.where('conversationId').equals(id).delete();
+            await db.mimiConversations.delete(id);
+        });
 
-            // If this was the active conversation, clear it
-            if (this.getActiveConversationId() === id) {
-                this.clearActiveConversationId();
-            }
-        } catch {
-            // File may not exist, that's fine
+        // If this was the active conversation, clear it
+        if (this.getActiveConversationId() === id) {
+            this.clearActiveConversationId();
         }
     }
 
     /**
      * Flush any pending debounced saves immediately.
+     * Saves all pending data before clearing timers.
      */
     async flushPendingSaves(): Promise<void> {
-        for (const [id, timer] of this.saveTimers.entries()) {
+        // Cancel all pending timers
+        for (const [, timer] of this.saveTimers.entries()) {
             clearTimeout(timer);
-            this.saveTimers.delete(id);
+        }
+        this.saveTimers.clear();
+
+        // Save all pending data
+        const saves = Array.from(this.pendingSaveData.entries());
+        this.pendingSaveData.clear();
+
+        if (saves.length > 0) {
+            console.log(`[ChatHistory] 💾 Flushing ${saves.length} pending save(s)...`);
+            await Promise.all(
+                saves.map(([id, msgs]) => this.saveConversation(id, msgs))
+            );
         }
     }
 
@@ -274,31 +328,6 @@ class ChatHistoryService {
     }
 
     // ─── Private Helpers ─────────────────────────────────────────
-
-    private async writeConversation(conv: Conversation): Promise<void> {
-        if (!this.historyHandle) return;
-
-        const fileHandle = await this.historyHandle.getFileHandle(
-            `${conv.id}.json`,
-            { create: true }
-        );
-        const writable = await fileHandle.createWritable();
-        await writable.write(JSON.stringify(conv, null, 2));
-        await writable.close();
-    }
-
-    private async readConversation(id: string): Promise<Conversation | null> {
-        if (!this.historyHandle) return null;
-
-        try {
-            const fileHandle = await this.historyHandle.getFileHandle(`${id}.json`);
-            const file = await fileHandle.getFile();
-            const text = await file.text();
-            return JSON.parse(text) as Conversation;
-        } catch {
-            return null; // File doesn't exist
-        }
-    }
 
     private generateId(): string {
         return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

@@ -31,7 +31,8 @@ import {
     Copy,
     History,
     Plus,
-    MessageSquare
+    MessageSquare,
+    Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,10 @@ export interface ChatHeaderProps {
     onNewConversation?: () => void;
     onDeleteConversation?: (id: string) => void;
     onRefreshConversations?: () => void;
+    // WebMCP (W3C Draft Feb 2026 — opt-in)
+    webMCPSupported?: boolean;
+    webMCPEnabled?: boolean;
+    onWebMCPToggle?: () => void;
 }
 
 const STATUS_LABELS: Record<AgentStatus, string> = {
@@ -122,6 +127,9 @@ export function ChatHeader({
     onNewConversation,
     onDeleteConversation,
     onRefreshConversations,
+    webMCPSupported = false,
+    webMCPEnabled = false,
+    onWebMCPToggle,
 }: ChatHeaderProps) {
     // Self-contained toggle states
     const [showLanguages, setShowLanguages] = useState(false);
@@ -186,6 +194,27 @@ export function ChatHeader({
                             </button>
                         )}
                     </div>
+                )}
+
+                {/* WebMCP Badge — nur wenn Chrome 146+ Canary */}
+                {webMCPSupported && onWebMCPToggle && (
+                    <button
+                        onClick={onWebMCPToggle}
+                        title={webMCPEnabled
+                            ? "WebMCP aktiv — MIMI Tools sind für AI-Agenten sichtbar. Klicken zum Deaktivieren."
+                            : "WebMCP verfügbar — Aktiviere MIMI als MCP-Server für AI-Agenten (opt-in)"
+                        }
+                        className={cn(
+                            "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border transition-all",
+                            webMCPEnabled
+                                ? "bg-brand-cyan/20 text-brand-cyan border-brand-cyan/40 hover:bg-brand-cyan/30"
+                                : "bg-white/5 text-white/30 border-white/10 hover:bg-white/10 hover:text-white/50"
+                        )}
+                    >
+                        <Zap className="w-3 h-3" />
+                        <span>MCP</span>
+                        {webMCPEnabled && <span className="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-pulse" />}
+                    </button>
                 )}
 
                 {/* PDF Upload & Document Manager */}
