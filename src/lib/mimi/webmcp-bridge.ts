@@ -16,10 +16,26 @@
  *
  * W3C Draft: https://nicov.github.io/nicov-webmcp/ (Feb 12, 2026)
  * Chrome 146+: chrome://flags → "Experimental Web Platform Features"
- * Polyfill: @mcp-b/global (npm)
+ * Polyfill: @mcp-b/global v1.5.0 (npm) — auto-injected below
  *
  * © 2026 MIMI Tech AI. All rights reserved.
  */
+
+// ═══════════════════════════════════════════════════════════
+// POLYFILL: Inject navigator.modelContext for ALL browsers
+// Uses @mcp-b/global — auto-detects native Chromium API if available.
+// Must run BEFORE any navigator.modelContext access.
+// ═══════════════════════════════════════════════════════════
+import { initializeWebModelContext, cleanupWebModelContext } from "@mcp-b/global";
+
+// Initialize polyfill on module load (client-side only)
+if (typeof window !== "undefined") {
+    try {
+        initializeWebModelContext();
+    } catch {
+        // Already initialized (HMR) or SSR — safe to ignore
+    }
+}
 
 import {
     TOOL_DEFINITIONS,
@@ -31,52 +47,7 @@ import {
 } from "./tool-definitions";
 
 // ═══════════════════════════════════════════════════════════
-// WebMCP TYPE DECLARATIONS
-// ═══════════════════════════════════════════════════════════
-
-/**
- * JSON Schema for WebMCP inputSchema — subset used by registerTool.
- * Follows JSON Schema Draft 2020-12 as specified in the W3C WebMCP draft.
- */
-interface JSONSchemaProperty {
-    type: string;
-    description?: string;
-    enum?: string[];
-}
-
-interface JSONSchemaObject {
-    type: "object";
-    properties: Record<string, JSONSchemaProperty>;
-    required: string[];
-}
-
-/**
- * WebMCP tool descriptor — the shape expected by registerTool().
- */
-interface WebMCPToolDescriptor {
-    name: string;
-    description: string;
-    inputSchema: JSONSchemaObject;
-    handler: (params: Record<string, unknown>) => Promise<unknown>;
-}
-
-/**
- * Augment the Navigator interface with the modelContext API.
- * This is a partial declaration matching the W3C draft.
- */
-declare global {
-    interface Navigator {
-        modelContext?: {
-            registerTool: (tool: WebMCPToolDescriptor) => void;
-            registerTools: (tools: WebMCPToolDescriptor[]) => void;
-            unregisterTool: (name: string) => void;
-            tools?: WebMCPToolDescriptor[];
-        };
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// CONVERSION: MIMI ToolParameter[] → JSON Schema
+// JSON Schema CONVERSION
 // ═══════════════════════════════════════════════════════════
 
 /**
@@ -91,19 +62,14 @@ const TYPE_MAP: Record<string, string> = {
 };
 
 /**
- * Convert a MIMI ToolDefinition's parameters to JSON Schema inputSchema.
- *
- * Example:
- *   MIMI: [{ name: 'query', type: 'string', required: true, description: '...' }]
- *   →
- *   JSON Schema: { type: 'object', properties: { query: { type: 'string', description: '...' } }, required: ['query'] }
+ * Convert MIMI ToolParameter[] to a JSON Schema object for WebMCP inputSchema.
  */
-export function toJSONSchema(params: ToolParameter[]): JSONSchemaObject {
-    const properties: Record<string, JSONSchemaProperty> = {};
+export function toJSONSchema(params: ToolParameter[]): Record<string, unknown> {
+    const properties: Record<string, Record<string, unknown>> = {};
     const required: string[] = [];
 
     for (const param of params) {
-        const prop: JSONSchemaProperty = {
+        const prop: Record<string, unknown> = {
             type: TYPE_MAP[param.type] || "string",
             description: param.description,
         };
@@ -128,10 +94,7 @@ export function toJSONSchema(params: ToolParameter[]): JSONSchemaObject {
 
 /**
  * Bridge between MIMI's tool system and the W3C WebMCP API.
- * Implements progressive enhancement:
- *   1. Native navigator.modelContext (Chrome 146+ with flag)
- *   2. @mcp-b/global polyfill (npm package)
- *   3. Graceful skip (no-op if neither available)
+ * Uses @mcp-b/global polyfill for cross-browser compatibility.
  */
 export class WebMCPBridge {
     private registered = false;
@@ -151,7 +114,6 @@ export class WebMCPBridge {
 
     /**
      * Set the tool execution context (for tools that need external dependencies).
-     * Must be called before registerAll() so handlers can access the context.
      */
     setContext(ctx: ToolExecutionContext): void {
         this.toolContext = ctx;
@@ -172,9 +134,8 @@ export class WebMCPBridge {
 
         if (!this.isAvailable()) {
             console.log(
-                "[WebMCP] ℹ️ navigator.modelContext not available. " +
-                "Enable via chrome://flags → 'Experimental Web Platform Features' " +
-                "or install @mcp-b/global polyfill."
+                "[WebMCP] ℹ️ navigator.modelContext not available after polyfill init. " +
+                "This may happen during SSR or in unsupported environments."
             );
             return { registered: 0, skipped: true, tools: [] };
         }
@@ -183,11 +144,39 @@ export class WebMCPBridge {
 
         for (const def of TOOL_DEFINITIONS) {
             try {
-                const descriptor = this.createDescriptor(def);
-                navigator.modelContext!.registerTool(descriptor);
+                // Build WebMCP-compatible descriptor using the polyfill's expected shape
+                const descriptor = {
+                    name: def.name,
+                    description: def.description,
+                    inputSchema: toJSONSchema(def.parameters),
+                    // The polyfill accepts both 'handler' and 'execute' — use 'execute'
+                    execute: async (params: Record<string, unknown>) => {
+                        console.log(
+                            `[WebMCP] 🔧 External agent invoked: ${def.name}`,
+                            params
+                        );
+
+                        const result: ToolResult = await executeToolCall(
+                            { tool: def.name, parameters: params as Record<string, any> },
+                            this.toolContext ?? undefined
+                        );
+
+                        return {
+                            content: [
+                                {
+                                    type: "text" as const,
+                                    text: result.output,
+                                },
+                            ],
+                        };
+                    },
+                };
+
+                // Use type assertion since the polyfill's ToolDescriptor generic types
+                // are complex — our descriptor is structurally compatible
+                navigator.modelContext!.registerTool(descriptor as any);
                 registered.push(def.name);
             } catch (err) {
-                // Tool might already be registered or name conflict
                 console.warn(
                     `[WebMCP] ⚠️ Failed to register tool '${def.name}':`,
                     err
@@ -226,6 +215,18 @@ export class WebMCPBridge {
     }
 
     /**
+     * Full cleanup including polyfill teardown (for HMR/testing).
+     */
+    destroy(): void {
+        this.unregisterAll();
+        try {
+            cleanupWebModelContext();
+        } catch {
+            // Not initialized — safe to ignore
+        }
+    }
+
+    /**
      * Get a summary of registered tools for debugging.
      */
     getStatus(): {
@@ -241,43 +242,10 @@ export class WebMCPBridge {
             tools: [...this.registeredTools],
         };
     }
-
-    // ─── INTERNAL ─────────────────────────────────
-
-    /**
-     * Create a WebMCP tool descriptor from a MIMI ToolDefinition.
-     * Wires the handler to route through MIMI's executeToolCall().
-     */
-    private createDescriptor(def: ToolDefinition): WebMCPToolDescriptor {
-        return {
-            name: def.name,
-            description: def.description,
-            inputSchema: toJSONSchema(def.parameters),
-            handler: async (params: Record<string, unknown>): Promise<unknown> => {
-                console.log(
-                    `[WebMCP] 🔧 Tool invoked by external agent: ${def.name}`,
-                    params
-                );
-
-                const result: ToolResult = await executeToolCall(
-                    { tool: def.name, parameters: params as Record<string, any> },
-                    this.toolContext ?? undefined
-                );
-
-                // WebMCP expects the handler's return value to be sent back
-                // to the calling agent. Return structured result.
-                return {
-                    success: result.success,
-                    output: result.output,
-                    ...(result.data !== undefined ? { data: result.data } : {}),
-                };
-            },
-        };
-    }
 }
 
 // ═══════════════════════════════════════════════════════════
-// SINGLETON
+// SINGLETON & CONVENIENCE
 // ═══════════════════════════════════════════════════════════
 
 let _bridge: WebMCPBridge | null = null;
@@ -293,11 +261,8 @@ export function getWebMCPBridge(): WebMCPBridge {
 }
 
 /**
- * Convenience: Initialize and register all tools in one call.
- * Meant to be called once during app initialization (e.g., in MimiAgentContext).
- *
- * @param context - Optional tool execution context for tools that need external deps
- * @returns Registration summary
+ * Initialize and register all tools in one call.
+ * Meant to be called once during app initialization.
  */
 export function initWebMCP(
     context?: ToolExecutionContext
