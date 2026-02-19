@@ -119,6 +119,25 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               </p>
 
               <div className="flex justify-center mt-4">
+                {/* Privacy-First USP — ArXiv 2025: Browser-local AI as key differentiator */}
+                <div className="inline-flex flex-wrap justify-center gap-2 px-4 py-3">
+                  {[
+                    { icon: "🔒", label: "Kein Server" },
+                    { icon: "💻", label: "Läuft lokal auf Ihrem Gerät" },
+                    { icon: "🛡️", label: "Ihre Daten bleiben bei Ihnen" },
+                  ].map(({ icon, label }) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-cyan/10 border border-brand-cyan/20 text-brand-cyan text-xs font-medium"
+                    >
+                      <span>{icon}</span>
+                      <span>{label}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-center mt-2">
                 <div className="glass-panel inline-flex items-center gap-3 px-4 py-3 rounded-full border border-white/10 bg-white/5 text-xs sm:text-sm text-gray-300">
                   <div className="relative h-10 w-40 rounded-md bg-white/90 px-3 py-1 overflow-hidden shadow-sm">
                     <Image
@@ -183,10 +202,10 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               <ArrowRight className="rotate-90 text-brand-cyan" size={16} />
             </motion.div>
           </div>
-        </section>
+        </section >
 
         {/* Für wen wir arbeiten */}
-        <section className="py-24 px-4 sm:px-6 lg:px-8">
+        < section className="py-24 px-4 sm:px-6 lg:px-8" >
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold">Für wen wir arbeiten</h2>
@@ -229,10 +248,10 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               </div>
             </div>
           </div>
-        </section>
+        </section >
 
         {/* Was wir liefern */}
-        <section id="services" className="py-20 md:py-32 px-4 sm:px-6 lg:px-8" ref={servicesRef}>
+        < section id="services" className="py-20 md:py-32 px-4 sm:px-6 lg:px-8" ref={servicesRef} >
           <div className="max-w-7xl mx-auto">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -289,10 +308,10 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               />
             </motion.div>
           </div>
-        </section>
+        </section >
 
         {/* Wie wir arbeiten */}
-        <section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8 bg-bg-surface">
+        < section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8 bg-bg-surface" >
           <div className="max-w-7xl mx-auto">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
               <motion.div
@@ -377,15 +396,15 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               </motion.div>
             </div>
           </div>
-        </section>
+        </section >
 
         {/* MIMI Agent Showcase */}
-        <section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+        < section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8 relative overflow-hidden" >
           {/* Background glow effects */}
-          <div className="absolute inset-0 pointer-events-none">
+          < div className="absolute inset-0 pointer-events-none" >
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-brand-cyan/5 rounded-full blur-[120px]" />
             <div className="absolute top-1/4 right-0 w-[300px] h-[300px] bg-purple-500/5 rounded-full blur-[100px]" />
-          </div>
+          </div >
 
           <div className="max-w-6xl mx-auto relative z-10">
             <motion.div
@@ -538,10 +557,10 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               />
             </motion.div>
           </div>
-        </section>
+        </section >
 
         {/* Abschluss-CTA */}
-        <section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8">
+        < section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8" >
           <div className="max-w-4xl mx-auto text-center space-y-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -573,11 +592,11 @@ export default function HomeLanding({ structuredData }: HomeLandingProps) {
               </p>
             </motion.div>
           </div>
-        </section>
-      </main>
+        </section >
+      </main >
 
       <Footer />
-    </div>
+    </div >
   );
 }
 

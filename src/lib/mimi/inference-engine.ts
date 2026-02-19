@@ -451,7 +451,7 @@ export class MimiEngine {
      * Nutzt Hybrid Search (BM25 + Semantic) wenn VectorStore verfügbar
      * Fallback auf Keyword-Search wenn nicht initialisiert
      */
-    private async enrichWithRAG(userMessage: string): Promise<string> {
+    private async enrichWithRAG(userMessage: string, k = 3): Promise<string> {
         console.log('[RAG] 🔍 Starte RAG für:', userMessage.slice(0, 50) + '...');
 
         try {
@@ -473,7 +473,7 @@ export class MimiEngine {
                     const allResults: Map<string, any> = new Map();
 
                     for (const query of expandedQueries) {
-                        const results = await vectorStore.hybridSearch(query, 3);
+                        const results = await vectorStore.hybridSearch(query, k);
                         for (const result of results) {
                             const key = `${result.documentId}_${result.pageNumber}_${result.text.slice(0, 50)}`;
                             if (!allResults.has(key)) {
@@ -489,7 +489,7 @@ export class MimiEngine {
                     // Sortiere nach Score und nimm Top 4
                     const hybridResults = Array.from(allResults.values())
                         .sort((a, b) => b.score - a.score)
-                        .slice(0, 4);
+                        .slice(0, k);
 
                     console.log('[RAG] Hybrid Ergebnisse (merged):', hybridResults.length);
 
@@ -510,7 +510,7 @@ export class MimiEngine {
             if (!hasResults) {
                 console.log('[RAG] Fallback: Keyword-Suche...');
                 try {
-                    const keywordResults = await searchDocuments(userMessage, 3);
+                    const keywordResults = await searchDocuments(userMessage, k);
                     console.log('[RAG] Keyword Ergebnisse:', keywordResults.length);
 
                     if (keywordResults.length > 0) {
@@ -714,16 +714,32 @@ export class MimiEngine {
             let enrichedMessages = [...messages];
             const lastUserMessage = messages.filter(m => m.role === 'user').pop();
 
-            // Schnell-Check: Enthält die Frage Dokument-Keywords?
-            const docKeywords = /pdf|dokument|vertrag|datei|seite|inhalt|text|bericht|analyse|zusammenfassung|suche|finde|zeige|erkläre.*dokument/i;
-            const hasDocumentContext = lastUserMessage && docKeywords.test(lastUserMessage.content);
+            // Agentic RAG: Intent-Score determines IF and HOW MUCH to retrieve
+            // ArXiv 2025: Dynamic k selection based on query complexity — avoids 3s overhead on pure chat
+            const ragIntentScore = (() => {
+                if (!lastUserMessage) return 0;
+                const q = lastUserMessage.content.toLowerCase();
+                let score = 0;
+                // High-intent signals (direct document references)
+                if (/pdf|vertrag|datei|dokument|anhang|seite \d+/.test(q)) score += 3;
+                // Medium-intent signals (analysis/retrieval language)
+                if (/zusammenfassung|analysier|fass.*zusammen|inhalt|bericht/.test(q)) score += 2;
+                // Weak-intent signals (search/show language)
+                if (/suche|finde|zeige|erkläre|was steht|wo/.test(q)) score += 1;
+                // Negative signals (pure chat — skip RAG)
+                if (/^(hallo|hi|hey|danke|ok|ja|nein|super|gut|okay|wie geht|was bist du)/i.test(q.trim())) score = 0;
+                return score;
+            })();
+            // Dynamic k: more intent = more chunks retrieved
+            const ragK = ragIntentScore >= 3 ? 5 : ragIntentScore >= 2 ? 3 : 2;
+            const hasDocumentContext = ragIntentScore >= 1;
 
             if (lastUserMessage && hasDocumentContext) {
                 this.updateStatus('analyzing');
                 try {
                     let ragResolved = false;
                     const ragContext = await Promise.race([
-                        this.enrichWithRAG(lastUserMessage.content).then(r => { ragResolved = true; return r; }),
+                        this.enrichWithRAG(lastUserMessage.content, ragK).then(r => { ragResolved = true; return r; }),
                         new Promise<string>(resolve => setTimeout(() => {
                             if (!ragResolved) {
                                 console.warn('[MIMI] ⚠️ RAG timeout (3s), skipping');
