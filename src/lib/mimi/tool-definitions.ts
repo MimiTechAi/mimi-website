@@ -576,8 +576,9 @@ interface WebSearchResult {
 }
 
 /**
- * Execute a web search via DuckDuckGo HTML API
- * Uses multiple CORS proxy strategies for browser compatibility
+ * Execute a web search via DuckDuckGo.
+ * Strategy 1: Next.js API route (server-side proxy — no CORS)
+ * Strategy 2: Direct browser fetch with CORS proxies (fallback)
  */
 export async function executeWebSearch(
     query: string,
@@ -586,12 +587,32 @@ export async function executeWebSearch(
     console.log(`[WebSearch] 🔍 Searching: "${query}" (limit: ${limit})`);
 
     try {
-        const results = await searchDuckDuckGo(query, limit);
+        // Strategy 1: Server-side proxy via Next.js API route (no CORS)
+        let results: WebSearchResult[] = [];
+        try {
+            const apiResponse = await fetch('/api/mimi/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, limit }),
+            });
+            if (apiResponse.ok) {
+                const data = await apiResponse.json();
+                results = data.results || [];
+                console.log(`[WebSearch] ✅ Proxy returned ${results.length} results`);
+            }
+        } catch {
+            console.log('[WebSearch] API proxy unavailable, trying CORS fallbacks...');
+        }
+
+        // Strategy 2: Browser-side with CORS proxies (fallback)
+        if (results.length === 0) {
+            results = await searchDuckDuckGo(query, limit);
+        }
 
         if (results.length === 0) {
             return {
                 success: true,
-                output: `Keine Ergebnisse für "${query}" gefunden.`,
+                output: `Keine Ergebnisse für "${query}" gefunden. Die Suche könnte durch Netzwerk-Einschränkungen blockiert sein.`,
                 data: []
             };
         }
@@ -618,7 +639,7 @@ export async function executeWebSearch(
 
         return {
             success: false,
-            output: `Web-Suche fehlgeschlagen: ${errorMsg}. MIMI läuft lokal im Browser — einige Netzwerkzugriffe können durch CORS blockiert werden.`
+            output: `Web-Suche fehlgeschlagen: ${errorMsg}`
         };
     }
 }
