@@ -4,43 +4,53 @@ description: Git commit, push und Deployment-Verifikation — der Release-Workfl
 
 # 🚀 Deploy Workflow
 
-Commit, push und verify.
+Commit, push und verify. Nutze semantic commit messages.
 
-## Schritt 1: Status prüfen
-
-// turbo
-```bash
-git status
-```
-
-## Schritt 2: Staged Changes prüfen
+## Schritt 1: Status + Diff prüfen
 
 // turbo
 ```bash
-git diff --stat
+git status && git diff --stat
 ```
 
-## Schritt 3: Commit erstellen
+## Schritt 2: Alle Änderungen stagen + committen
 
 ```bash
-git add -A && git commit -m "<TYPE>: <beschreibung>"
+git add -A && git commit -m "<TYPE>(<scope>): <kurze beschreibung>
+
+<optionaler body: was wurde warum geändert>"
 ```
 
-Commit-Types: `feat`, `fix`, `refactor`, `docs`, `chore`, `perf`, `test`
+**Commit-Types:** `feat` | `fix` | `perf` | `refactor` | `docs` | `chore` | `test`
 
-## Schritt 4: Push
+> Beispiele:
+> - `fix(chat): replace rAF with queueMicrotask in AgentEventBus`
+> - `feat(engine): add shader warmup before first generation`
+> - `perf(css): remove content-visibility:auto from chat-messages`
 
+## Schritt 3: Push
+
+// turbo
 ```bash
 git push origin main
 ```
 
-## Schritt 5: Deployment-Status prüfen
+Falls kein upstream gesetzt:
+```bash
+git push --set-upstream origin main
+```
 
-- Falls Vercel: Warte 60s, dann prüfe Deployment-URL
-- Falls Cloud Run: Nutze `mcp_cloudrun_get_service`
+## Schritt 4: Deployment-Status prüfen
 
-## Schritt 6: Post-Deploy Smoke Test
+- **Vercel:** Warte 60–90s → prüfe `https://mimitechai.com` oder Vercel Dashboard
+- **Cloud Run:** `mcp_cloudrun_get_service` → prüfe `status.url`
 
-- `browser_subagent` → Öffne Production-URL
-- Screenshot machen
-- `notify_user` mit Ergebnis
+## Schritt 5: Post-Deploy Smoke Test
+
+// turbo
+```bash
+curl -s -o /dev/null -w "%{http_code}" https://mimitechai.com
+```
+
+- Erwarteter Code: `200`
+- Danach `browser_subagent` → Screenshot der Prod-URL → `notify_user`

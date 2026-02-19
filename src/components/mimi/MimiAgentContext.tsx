@@ -13,6 +13,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { flushSync } from "react-dom";
 import { useMimiEngine } from "@/hooks/mimi/useMimiEngine";
 import { useAgentEvents } from "@/hooks/mimi/useAgentEvents";
 import { AgentEvents } from "@/lib/mimi/agent-events";
@@ -492,7 +493,11 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
             const generator = engine.handleSendMessage(text);
             for await (const chunk of generator) {
                 fullResponse += chunk;
-                setCurrentResponse(fullResponse);
+                // FIX: flushSync forces a synchronous DOM commit per token.
+                // Without this, React 18 automatic batching defers updates from
+                // the async generator's microtask queue until the next frame,
+                // causing the "text only visible after resize" bug.
+                flushSync(() => setCurrentResponse(fullResponse));
             }
 
             const assistantMsg: ChatMessage = { role: "assistant", content: fullResponse };

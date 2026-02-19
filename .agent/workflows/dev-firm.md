@@ -6,136 +6,121 @@ description: SOTA 2026 Dev-Firm Workflow - Nutze Antigravity wie ein Google Deep
 
 Starte mit `/dev-firm <Aufgabe>`. Antigravity übernimmt **alle Rollen automatisch**.
 
-## 🧑‍💼 Chef-Agent (Orchestrator) — Läuft automatisch
-
-Der Chef-Agent steuert den gesamten Ablauf. Du musst nur die Aufgabe nennen.
-
-### Automatischer Ablauf:
+## 🧑‍💼 Chef-Agent (Orchestrator)
 
 ```
 User: /dev-firm Implementiere Feature X
 
-  ┌─────────────────────────────────────────────────┐
-  │  🧑‍💼 CHEF-AGENT (Orchestrator)                  │
-  │                                                 │
-  │  1. Aufgabe analysieren                         │
-  │  2. In Subtasks zerlegen (task.md)              │
-  │  3. Abhängigkeiten erkennen                     │
-  │  4. Agents delegieren (parallel wo möglich)     │
-  │  5. Fortschritt überwachen (task_boundary)      │
-  │  6. Abnahme-Test durchführen                    │
-  │  7. Ergebnis-Report erstellen (walkthrough.md)  │
-  │  8. Nur bei Bedarf User fragen                  │
-  └───┬────────┬────────┬────────┬──────────────────┘
-      │        │        │        │
-      ▼        ▼        ▼        ▼
-   🧠 Plan  👷 Code  👷 Code  🔍 QA
+  ┌──────────────────────────────────────────┐
+  │  🧑‍💼 CHEF-AGENT                          │
+  │  1. Aufgabe analysieren                  │
+  │  2. Subtasks in task.md zerlegen         │
+  │  3. Abhängigkeiten erkennen              │
+  │  4. Parallel-Agents delegieren           │
+  │  5. QA-Abnahme durchführen               │
+  │  6. walkthrough.md erstellen             │
+  │  7. Nur bei Bedarf User fragen           │
+  └────┬───────┬───────┬───────┬─────────────┘
+       ▼       ▼       ▼       ▼
+    🧠 Plan  👷 Code  👷 Code  🔍 QA
 ```
 
 ---
 
-## Phase 1: Chef analysiert & plant (AUTO)
+## Phase 1: Analyse & Plan (AUTO)
 
-Der Chef-Agent macht **ohne Rückfrage**:
-
-1. Codebase scannen:
-   - `grep_search` + `find_by_name` für relevante Dateien
-   - `view_file_outline` für Architektur-Verständnis
-   - Knowledge Items prüfen für existierendes Wissen
 // turbo
-2. Task-Zerlegung in `task.md`:
-   - Hauptaufgabe in 3-7 Subtasks zerlegen
-   - Abhängigkeiten markieren (was muss zuerst)
-   - Geschätzten Aufwand pro Subtask notieren
+1. **Codebase scannen** (parallel):
+   - `grep_search` + `find_by_name` für relevante Dateien
+   - `view_file_outline` für Architektur
+   - Knowledge Items prüfen
 
-3. Implementation Plan erstellen (`implementation_plan.md`):
-   - Betroffene Dateien identifizieren
-   - Änderungen pro Komponente beschreiben
-   - Test-Strategie definieren
+2. **task.md erstellen** — 3-7 Subtasks mit Abhängigkeiten
 
-4. **Chef entscheidet**: Plan dem User zeigen oder direkt starten?
-   - Kleine Änderungen (< 3 Dateien) → Direkt starten, ShouldAutoProceed=true
-   - Große Änderungen (> 3 Dateien, Architektur) → User fragen
+3. **implementation_plan.md erstellen** — Dateien, Änderungen, Tests
+
+4. **Entscheidung:**
+   - < 3 Dateien → Direkt starten (`ShouldAutoProceed=true`)
+   - ≥ 3 Dateien oder Architektur → `notify_user` mit Plan
 
 ---
 
-## Phase 2: Chef delegiert an Engineers (PARALLEL)
+## Phase 2: Implementation (PARALLEL)
 
 // turbo-all
 
-5. **Unabhängige Tasks parallel starten:**
-   - Alle Datei-Edits die keine Abhängigkeiten haben → gleichzeitig
-   - Terminal-Commands im Hintergrund parallel
-   - Browser-Subagent wenn UI-Arbeit nötig
+5. **Unabhängige Tasks gleichzeitig:**
+   - Alle nicht-abhängigen Datei-Edits → parallel
+   - Terminal-Tests → parallel im Hintergrund
+   - Browser-Subagent wenn UI-Änderungen nötig
 
 6. **Abhängige Tasks sequentiell:**
-   - Erst Types/Interfaces, dann Implementation
-   - Erst Backend, dann Frontend das darauf aufbaut
+   - Erst Types/Interfaces → dann Implementation
+   - Erst Engine-Layer → dann Context/Hooks → dann UI
 
-7. Nach JEDER Datei: `task.md` updaten (`[/]` → `[x]`)
+7. Nach jeder Datei: `task.md` updaten `[/]` → `[x]`
 
 ---
 
-## Phase 3: Chef startet QA-Abnahme (AUTO)
+## Phase 3: QA-Abnahme (AUTO)
 
 // turbo-all
 
-8. Build-Check:
+8. **TypeScript:**
 ```bash
-npx tsc --noEmit 2>&1 | grep "error TS" | wc -l
+npx tsc --noEmit 2>&1 | grep "error TS" | head -20
 ```
 
-9. Tests:
+9. **Tests:**
 ```bash
-npx jest --no-coverage --forceExit 2>&1
+npx jest --no-coverage --forceExit 2>&1 | tail -20
 ```
 
-10. Lint:
+10. **Lint:**
 ```bash
-npx next lint 2>&1 | tail -20
+npx next lint 2>&1 | tail -10
 ```
 
-11. Bei UI-Änderungen: Browser-Subagent Screenshots
+11. **Browser** (bei UI-Änderungen): `browser_subagent` → `http://localhost:3000/mimi` → Screenshots
 
-12. **Chef-Entscheidung bei Fehlern:**
-    - Build-Fehler → Sofort fixen, zurück zu Phase 2
-    - Test-Fehler → Analysieren, fixen, Tests nochmal
-    - Lint-Warnings → Fixen wenn einfach, sonst akzeptieren
+12. **Fehler-Entscheidungsbaum:**
+    - Build-Fehler → Sofort fixen → zurück zu Phase 2
+    - Test-Fehler → Analysieren, max 3 Fix-Iterationen → bei Persistenz: `notify_user`
+    - Lint-Warnings → Fixen wenn < 5 min, sonst akzeptieren
 
 ---
 
-## Phase 4: Chef erstellt Abnahme-Report (AUTO)
+## Phase 4: Abnahme-Report (AUTO)
 
-13. `walkthrough.md` erstellen:
-    - Alle Änderungen mit `render_diffs()`
-    - Test-Ergebnisse
-    - Screenshots bei UI-Änderungen
+13. **walkthrough.md** erstellen:
+    - `render_diffs()` für alle geänderten Dateien
+    - Test-Ergebnisse + Screenshots
     - Zusammenfassung: Was wurde erreicht
 
-14. `notify_user` mit finalem Report:
-    - ✅ Was funktioniert
-    - ⚠️ Was der User noch prüfen sollte
-    - 🚀 Nächste Schritte (deploy?)
+14. **`notify_user`:**
+    - ✅ Fertige Features
+    - ⚠️ Was der User prüfen sollte
+    - 🚀 Nächste Schritte (`/deploy`?)
 
 ---
 
 ## Chef's Entscheidungsregeln
 
-| Situation | Chef-Entscheidung |
+| Situation | Entscheidung |
 |---|---|
-| Klare Aufgabe, < 3 Dateien | Direkt implementieren, AutoProceed |
-| Architektur-Entscheidung nötig | User fragen, Plan zeigen |
-| Build bricht | Sofort fixen, nicht User nerven |
-| Tests failen | Analysieren + fixen, erst bei 3. Fehlschlag User informieren |
-| Unklare Anforderung | Sofort nachfragen, NICHT raten |
-| Feature fertig | Walkthrough + Report, User informieren |
+| Klare Aufgabe < 3 Dateien | Direkt implementieren, AutoProceed |
+| Architektur-Entscheidung | User fragen, Plan zeigen |
+| Build bricht | Sofort fixen, User nicht stören |
+| Tests failen | Fixen, erst beim 3. Fehlschlag eskalieren |
+| Unklare Anforderung | Sofort nachfragen — NICHT raten |
+| Feature fertig | Walkthrough + Report → User |
+| Unerwartete Komplexität | Zurück zu PLANNING, Plan updaten |
 
 ---
 
 ## Tipps für den User
 
-- **Je präziser deine Aufgabe, desto autonomer arbeitet der Chef**
-- Gute Prompts: „Implementiere X mit Y Technologie für Z Anwendungsfall"
-- Schlechte Prompts: „Mach was cooles"
-- Du kannst jederzeit `/full-review` nachschieben für Extra-QA
-- Du kannst jederzeit `/deploy` für Release nutzen
+- **Präzise Aufgabe = mehr Autonomie**: „Implementiere X mit Y für Z"
+- `/full-review` jederzeit für Extra-QA nachschieben
+- `/deploy` für Release nach dev-firm
+- `/quick-fix` für kleine isolierte Bugs
