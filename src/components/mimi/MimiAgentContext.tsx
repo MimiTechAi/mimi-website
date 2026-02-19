@@ -28,6 +28,7 @@ import { useMemoryToasts, type MemoryToastItem } from "./components/MemoryToast"
 // SECURITY: HTML sanitization (shared utility)
 // ═══════════════════════════════════════════════════════════
 import { sanitizeHtml } from "./utils/sanitize";
+import { initWebMCP, getWebMCPBridge } from "@/lib/mimi/webmcp-bridge";
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
@@ -702,6 +703,20 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
 
     const isReady = engine.state === "ready";
     const isIdle = !engine.agentStatus || engine.agentStatus === "idle";
+
+    // ── WebMCP: Register MIMI tools when engine is ready ────────
+    useEffect(() => {
+        if (!isReady) return;
+        const result = initWebMCP();
+        if (result.registered > 0) {
+            console.log(
+                `[MimiAgent] WebMCP: ${result.registered} tools registered for external AI agents`
+            );
+        }
+        return () => {
+            getWebMCPBridge().unregisterAll();
+        };
+    }, [isReady]);
 
     const terminalLines = useMemo(() => {
         void terminalVersion;
