@@ -152,7 +152,7 @@ export class MimiEngine {
     private _isInitializing = false;
     private currentModel: string | null = null;
 
-    private isFirstGeneration = true;
+
     private statusCallback: StatusCallback | null = null;
     private agentOrchestrator?: AgentOrchestrator;
     private memoryManager?: MemoryManager;
@@ -254,7 +254,7 @@ export class MimiEngine {
 
             this.isReady = true;
             this.currentModel = modelId;
-            this.isFirstGeneration = true;
+            // Chrome 117+ caches compiled WebGPU shaders persistently — no warmup counter needed.
 
 
             // Register LLM in Memory Manager
@@ -587,20 +587,17 @@ export class MimiEngine {
         let pendingPartialTag = '';
 
         const MAX_THINKING_BUFFER = 2000;
-        const isFirst = this.isFirstGeneration;
-        if (isFirst) {
-            console.log(`[MIMI] ℹ️ First generation — WebGPU shader JIT on Apple GPU (extended timeout active)`);
-            this.isFirstGeneration = false;
-        }
+        // WebGPU shaders are compiled by the browser on first GPU use,
+        // then cached persistently by Chrome/Edge (since v117). No warmup needed.
 
         // V3: Direct streaming via WebLLM's official API
         // No polling, no messageHandlers, no tokenQueue — just async iteration
         const stream = await this.engine.chat.completions.create({
             messages: fullMessages as webllm.ChatCompletionMessageParam[],
             temperature: options?.temperature ?? 0.7,
-            max_tokens: options?.maxTokens ?? 2048,
+            // SOTA 2026: 4096 instead of 2048 — Qwen3 supports 32K ctx, 2048 cut answers short
+            max_tokens: options?.maxTokens ?? 4096,
             top_p: 0.95,
-            frequency_penalty: 0.1,
             stream: true,
             stream_options: { include_usage: false }
         });
@@ -914,8 +911,7 @@ export class MimiEngine {
                     await new Promise(r => setTimeout(r, 2000)); // 2s cooldown — let Metal finish compiling shaders
 
                     this.updateStatus('generating');
-                    // Give retry the same extended timeout (shaders might still be compiling)
-                    this.isFirstGeneration = true;
+                    // Retry gets fresh pipeline — shaders already compiled + cached by Chrome.
                     AgentEvents.thinkingStart();
                     try {
                         for await (const token of this.singleGeneration(fullMessages, options)) {
