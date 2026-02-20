@@ -35,7 +35,7 @@ import {
     Cpu, ListTodo, Code, Eye, Zap, Activity, Clock,
     ArrowLeft, ArrowRight, RotateCw, Shield, Hash,
     Layers, Database, Network, ChevronUp, Sparkles,
-    Upload, Notebook, GripVertical, X
+    Upload, Notebook, GripVertical, X, Archive
 } from "lucide-react";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react").then(mod => mod.default), {
@@ -1294,6 +1294,55 @@ function FileManagerView() {
         e.target.value = ''; // Reset so same file can be picked again
     }, [processFiles]);
 
+    // ── Download helpers ──
+    const downloadFile = useCallback(async (name: string) => {
+        try {
+            const content = await actions.readFile(name);
+            const ext = name.split('.').pop()?.toLowerCase() || '';
+            const mimeMap: Record<string, string> = {
+                pdf: 'application/pdf', json: 'application/json',
+                html: 'text/html', css: 'text/css', csv: 'text/csv',
+                js: 'application/javascript', ts: 'text/plain',
+                py: 'text/plain', md: 'text/markdown', txt: 'text/plain',
+            };
+            const mime = mimeMap[ext] || 'application/octet-stream';
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = name; a.click();
+            URL.revokeObjectURL(url);
+            ctx.addToast(`⬇️ ${name} heruntergeladen`);
+        } catch { ctx.addToast(`❌ Download fehlgeschlagen: ${name}`); }
+    }, [actions, ctx]);
+
+    const downloadAll = useCallback(async () => {
+        const downloadable = opfsFiles.filter(f => !f.isDirectory);
+        if (downloadable.length === 0 && ctx.codeArtifacts.length === 0) {
+            ctx.addToast('Keine Dateien zum Download');
+            return;
+        }
+        try {
+            const JSZip = (await import('jszip')).default;
+            const zip = new JSZip();
+            for (const file of downloadable) {
+                try {
+                    const content = await actions.readFile(file.name);
+                    zip.file(file.name, content);
+                } catch { /* skip unreadable */ }
+            }
+            for (const art of ctx.codeArtifacts) {
+                zip.file(`artifacts/${art.filename}`, art.content);
+            }
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `mimi-workspace-${ts}.zip`; a.click();
+            URL.revokeObjectURL(url);
+            ctx.addToast(`📦 Workspace als ZIP heruntergeladen`);
+        } catch { ctx.addToast('❌ ZIP-Erstellung fehlgeschlagen'); }
+    }, [opfsFiles, actions, ctx]);
+
     return (
         <div
             className="computer-files-view"
@@ -1350,6 +1399,15 @@ function FileManagerView() {
                 >
                     <Upload className="w-3 h-3" />
                 </button>
+                {totalFiles > 0 && (
+                    <button
+                        className="file-upload-btn"
+                        title="Alles als ZIP herunterladen"
+                        onClick={downloadAll}
+                    >
+                        <Archive className="w-3 h-3" />
+                    </button>
+                )}
             </div>
             {totalFiles > 0 ? (
                 <div className="files-grid">
@@ -1365,19 +1423,7 @@ function FileManagerView() {
                                 <button
                                     className="file-download-btn"
                                     title="Herunterladen"
-                                    onClick={async (e) => {
-                                        e.stopPropagation();
-                                        try {
-                                            const content = await actions.readFile(file.name);
-                                            const blob = new Blob([content], { type: 'text/plain' });
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement('a');
-                                            a.href = url;
-                                            a.download = file.name;
-                                            a.click();
-                                            URL.revokeObjectURL(url);
-                                        } catch { /* skip */ }
-                                    }}
+                                    onClick={(e) => { e.stopPropagation(); downloadFile(file.name); }}
                                 >
                                     <Download className="w-3 h-3" />
                                 </button>
