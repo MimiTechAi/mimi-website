@@ -2250,6 +2250,45 @@
     margin-top: 4px;
 }
 
+.file-upload-btn {
+    margin-left: auto;
+    background: rgba(0, 212, 255, 0.08);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-radius: 5px;
+    color: rgba(255, 255, 255, 0.5);
+    padding: 3px 7px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: all 0.15s;
+}
+
+.file-upload-btn:hover {
+    background: rgba(0, 212, 255, 0.15);
+    color: #00d4ff;
+    border-color: rgba(0, 212, 255, 0.3);
+}
+
+.upload-progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 4px 8px;
+}
+
+.upload-file-name {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.upload-progress-fill.error {
+    background: linear-gradient(90deg, #ef4444, #f97316);
+    width: 100% !important;
+}
+
 /* ── Scratchpad View ───────────────────────────────── */
 .scratchpad-view {
     display: flex;

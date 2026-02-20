@@ -27,6 +27,7 @@ import { ArtifactPanel } from "./ArtifactPanel";
 import { sanitizeHtml } from "../utils/sanitize";
 import useAgentComputer from "@/hooks/mimi/useAgentComputer";
 import type { AgentComputerState, AgentComputerActions } from "@/hooks/mimi/useAgentComputer";
+import { AgentEvents } from "@/lib/mimi/agent-events";
 import {
     Globe, Terminal, FileCode2, Copy, Download, Brain,
     Bot, Search, PenTool, Check, ChevronRight, ChevronDown,
@@ -1198,22 +1199,75 @@ function FileManagerView() {
     const { state: computer, actions } = useComputer();
     const [opfsFiles, setOpfsFiles] = useState<{ name: string; isDirectory: boolean; size?: number }[]>([]);
     const [isDragging, setIsDragging] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState<{ name: string; pct: number } | null>(null);
+    const [uploads, setUploads] = useState<{ name: string; pct: number; done: boolean }[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Allowed extensions + 10MB limit
+    const ALLOWED_EXTS = new Set(['.txt', '.md', '.csv', '.json', '.pdf', '.py', '.js', '.ts', '.html', '.css']);
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
     // Load real OPFS files from AgentComputer
-    useEffect(() => {
+    const refreshFiles = useCallback(async () => {
         if (!computer.isReady) return;
-        let cancelled = false;
-        (async () => {
-            try {
-                const entries = await actions.listFiles();
-                if (!cancelled) setOpfsFiles(entries);
-            } catch { /* non-critical */ }
-        })();
-        return () => { cancelled = true; };
-    }, [computer.isReady, actions, computer.terminalHistory.length]);
+        try {
+            const entries = await actions.listFiles();
+            setOpfsFiles(entries);
+        } catch { /* non-critical */ }
+    }, [computer.isReady, actions]);
+
+    useEffect(() => {
+        refreshFiles();
+    }, [refreshFiles, computer.terminalHistory.length]);
 
     const totalFiles = ctx.codeArtifacts.length + ctx.generatedFiles.length + opfsFiles.length;
+
+    // ── File processing (shared by drag-drop and file picker) ──
+    const processFiles = useCallback(async (fileList: File[]) => {
+        const validFiles: File[] = [];
+        for (const file of fileList) {
+            const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+            if (!ALLOWED_EXTS.has(ext)) {
+                ctx.addToast(`❌ ${file.name}: Dateityp nicht unterstützt`);
+                continue;
+            }
+            if (file.size > MAX_SIZE) {
+                ctx.addToast(`❌ ${file.name}: Datei zu groß (max 10MB)`);
+                continue;
+            }
+            validFiles.push(file);
+        }
+        if (validFiles.length === 0) return;
+
+        // Initialize progress entries
+        setUploads(validFiles.map(f => ({ name: f.name, pct: 0, done: false })));
+
+        for (let i = 0; i < validFiles.length; i++) {
+            const file = validFiles[i];
+            setUploads(prev => prev.map((u, j) => j === i ? { ...u, pct: 20 } : u));
+            try {
+                const text = await file.text();
+                setUploads(prev => prev.map((u, j) => j === i ? { ...u, pct: 60 } : u));
+
+                // Ensure uploads dir exists + write file
+                await actions.writeFile(`uploads/${file.name}`, text);
+
+                setUploads(prev => prev.map((u, j) => j === i ? { ...u, pct: 100, done: true } : u));
+
+                // Notify agent event bus
+                AgentEvents.fileWrite(`/workspace/uploads/${file.name}`, 'create', file.size);
+            } catch {
+                setUploads(prev => prev.map((u, j) => j === i ? { ...u, pct: -1, done: true } : u));
+                ctx.addToast(`❌ Upload fehlgeschlagen: ${file.name}`);
+            }
+        }
+
+        // Refresh file list
+        await refreshFiles();
+        ctx.addToast(`✅ ${validFiles.length} Datei(en) hochgeladen`);
+
+        // Clear progress after delay
+        setTimeout(() => setUploads([]), 2000);
+    }, [actions, ctx, refreshFiles]);
 
     // ── Drag & Drop handlers ──
     const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1229,23 +1283,16 @@ function FileManagerView() {
         e.preventDefault();
         setIsDragging(false);
         const files = Array.from(e.dataTransfer.files);
-        for (const file of files) {
-            setUploadProgress({ name: file.name, pct: 0 });
-            try {
-                const text = await file.text();
-                // Simulate progress
-                setUploadProgress({ name: file.name, pct: 50 });
-                await actions.writeFile(`uploads/${file.name}`, text);
-                setUploadProgress({ name: file.name, pct: 100 });
-            } catch { /* skip */ }
-        }
-        // Refresh file list
-        try {
-            const entries = await actions.listFiles();
-            setOpfsFiles(entries);
-        } catch { /* skip */ }
-        setTimeout(() => setUploadProgress(null), 1200);
-    }, [actions]);
+        await processFiles(files);
+    }, [processFiles]);
+
+    // ── Native file picker handler ──
+    const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files?.length) return;
+        const files = Array.from(e.target.files);
+        await processFiles(files);
+        e.target.value = ''; // Reset so same file can be picked again
+    }, [processFiles]);
 
     return (
         <div
@@ -1254,28 +1301,55 @@ function FileManagerView() {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* ── Upload Drop Zone ── */}
+            {/* Hidden file input for native picker */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".txt,.md,.csv,.json,.pdf,.py,.js,.ts,.html,.css"
+                style={{ display: 'none' }}
+                onChange={handleFileInputChange}
+            />
+
+            {/* ── Upload Drop Zone Overlay ── */}
             {isDragging && (
                 <div className="file-drop-overlay">
                     <Upload className="w-8 h-8" style={{ color: '#00d4ff' }} />
-                    <span>Datei ablegen → /workspace/uploads/</span>
+                    <span>Dateien ablegen → /workspace/uploads/</span>
+                    <span style={{ fontSize: '0.6rem', opacity: 0.5 }}>
+                        .txt .md .csv .json .pdf .py .js .ts .html .css (max 10MB)
+                    </span>
                 </div>
             )}
 
-            {/* ── Upload Progress ── */}
-            {uploadProgress && (
-                <div className="upload-progress-bar">
-                    <span>{uploadProgress.name}</span>
-                    <div className="upload-progress-track">
-                        <div className="upload-progress-fill" style={{ width: `${uploadProgress.pct}%` }} />
-                    </div>
-                    <span>{uploadProgress.pct}%</span>
+            {/* ── Per-file Upload Progress ── */}
+            {uploads.length > 0 && (
+                <div className="upload-progress-list">
+                    {uploads.map((u, i) => (
+                        <div key={i} className="upload-progress-bar">
+                            <span className="upload-file-name">{u.name}</span>
+                            <div className="upload-progress-track">
+                                <div
+                                    className={`upload-progress-fill${u.pct === -1 ? ' error' : ''}`}
+                                    style={{ width: `${Math.max(0, u.pct)}%` }}
+                                />
+                            </div>
+                            <span>{u.pct === -1 ? '✗' : u.done ? '✓' : `${u.pct}%`}</span>
+                        </div>
+                    ))}
                 </div>
             )}
 
             <div className="files-header">
                 <FileCode2 className="w-4 h-4 text-brand-cyan" />
                 <span>Workspace ({totalFiles} Dateien)</span>
+                <button
+                    className="file-upload-btn"
+                    title="Dateien hochladen"
+                    onClick={() => fileInputRef.current?.click()}
+                >
+                    <Upload className="w-3 h-3" />
+                </button>
             </div>
             {totalFiles > 0 ? (
                 <div className="files-grid">
@@ -1352,7 +1426,7 @@ function FileManagerView() {
                 <div className="files-empty-state">
                     <FileCode2 className="w-6 h-6" style={{ opacity: 0.3 }} />
                     <span>Noch keine Dateien erstellt</span>
-                    <p className="files-empty-hint">Dateien hierher ziehen zum Hochladen</p>
+                    <p className="files-empty-hint">Dateien hierher ziehen oder Upload-Button nutzen</p>
                 </div>
             )}
         </div>
