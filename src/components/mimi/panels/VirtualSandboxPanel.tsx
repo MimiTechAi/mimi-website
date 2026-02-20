@@ -24,6 +24,7 @@ import dynamic from "next/dynamic";
 import { useMimiAgentContext } from "../MimiAgentContext";
 import type { ComputerView } from "../MimiAgentContext";
 import { ArtifactPanel } from "./ArtifactPanel";
+import { ResultArtifactView } from "./ResultArtifactView";
 import { sanitizeHtml } from "../utils/sanitize";
 import useAgentComputer from "@/hooks/mimi/useAgentComputer";
 import type { AgentComputerState, AgentComputerActions } from "@/hooks/mimi/useAgentComputer";
@@ -73,6 +74,7 @@ const VIEW_COLORS: Record<ComputerView, string> = {
     'planning': '#f59e0b',
     'file-manager': '#06b6d4',
     'scratchpad': '#f97316',
+    'artifacts': '#e879f9',
 };
 
 const VIEW_ICONS: Record<ComputerView, typeof Monitor> = {
@@ -83,6 +85,7 @@ const VIEW_ICONS: Record<ComputerView, typeof Monitor> = {
     'planning': ListTodo,
     'file-manager': FileCode2,
     'scratchpad': Notebook,
+    'artifacts': Layers,
 };
 
 const VIEW_LABELS: Record<ComputerView, string> = {
@@ -93,6 +96,7 @@ const VIEW_LABELS: Record<ComputerView, string> = {
     'planning': 'Task Execution',
     'file-manager': 'File Manager',
     'scratchpad': 'Scratchpad',
+    'artifacts': 'Artifacts',
 };
 
 // ── Activity Timeline Entry Type ────────────────────────────
@@ -339,6 +343,15 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
                     >
                         <Notebook className="w-3.5 h-3.5" />
                     </button>
+
+                    {/* Artifacts toggle */}
+                    <button
+                        className={`task-tree-toggle${view === 'artifacts' ? ' active' : ''}`}
+                        onClick={() => setLocalViewOverride(view === 'artifacts' ? null : 'artifacts')}
+                        title="Artifacts anzeigen"
+                    >
+                        <Layers className="w-3.5 h-3.5" />
+                    </button>
                 </div>
 
                 {/* ── Computer Viewport ─────────────── */}
@@ -367,6 +380,7 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
                                 {view === 'idle' && <IdleView />}
                                 {view === 'file-manager' && <FileManagerView />}
                                 {view === 'scratchpad' && <ScratchpadView />}
+                                {view === 'artifacts' && <ResultArtifactView />}
                             </>
                         )}
                     </div>

@@ -2289,6 +2289,372 @@
     width: 100% !important;
 }
 
+/* ── ResultArtifactView (Sparkpage) ────────────────── */
+.rav-container {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Inter', -apple-system, sans-serif;
+}
+
+.rav-sidebar {
+    width: 140px;
+    flex-shrink: 0;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 8px 4px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rav-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.65rem;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rav-sidebar-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.rav-sidebar-item.active {
+    background: rgba(0, 212, 255, 0.08);
+    color: #00d4ff;
+}
+
+.rav-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px 24px;
+}
+
+.rav-toolbar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.rav-toolbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.625rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.rav-toolbar-btn:hover {
+    background: rgba(0, 212, 255, 0.08);
+    color: #00d4ff;
+    border-color: rgba(0, 212, 255, 0.15);
+}
+
+.rav-title {
+    font-size: 1.3rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #ffffff, #00d4ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+    line-height: 1.3;
+}
+
+.rav-content {
+    line-height: 1.65;
+}
+
+.rav-h1 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: 20px 0 8px;
+    color: #e2e8f0;
+}
+
+.rav-h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 18px 0 6px;
+    color: #e2e8f0;
+}
+
+.rav-h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin: 14px 0 4px;
+    color: #cbd5e1;
+}
+
+.rav-h4,
+.rav-h5,
+.rav-h6 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin: 10px 0 4px;
+    color: #94a3b8;
+}
+
+.rav-paragraph {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-bottom: 10px;
+}
+
+.rav-inline-code {
+    background: rgba(0, 212, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.85em;
+    color: #7dd3fc;
+}
+
+.rav-link {
+    color: #00d4ff;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+.rav-link:hover {
+    border-bottom-color: #00d4ff;
+}
+
+.rav-blockquote {
+    border-left: 3px solid rgba(0, 212, 255, 0.3);
+    padding: 6px 12px;
+    margin: 10px 0;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-style: italic;
+    background: rgba(0, 212, 255, 0.02);
+    border-radius: 0 6px 6px 0;
+}
+
+.rav-hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    margin: 16px 0;
+}
+
+/* Table */
+.rav-table-container {
+    margin: 10px 0;
+    overflow-x: auto;
+}
+
+.rav-table-filter {
+    width: 100%;
+    padding: 5px 10px;
+    margin-bottom: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    color: #e2e8f0;
+    font-size: 0.65rem;
+    outline: none;
+}
+
+.rav-table-filter:focus {
+    border-color: rgba(0, 212, 255, 0.3);
+}
+
+.rav-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.675rem;
+}
+
+.rav-table th {
+    padding: 6px 10px;
+    background: rgba(0, 212, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: #00d4ff;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.rav-table th:hover {
+    background: rgba(0, 212, 255, 0.1);
+}
+
+.rav-table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: #94a3b8;
+}
+
+.rav-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Code Block */
+.rav-code-block {
+    margin: 10px 0;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.rav-code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rav-code-lang {
+    font-size: 0.6rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.rav-code-copy {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    transition: all 0.15s;
+}
+
+.rav-code-copy:hover {
+    color: #00d4ff;
+    background: rgba(0, 212, 255, 0.1);
+}
+
+.rav-code-pre {
+    padding: 10px 14px;
+    margin: 0;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.7rem;
+    line-height: 1.5;
+    color: #cbd5e1;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+/* List */
+.rav-list-section {
+    margin: 8px 0;
+}
+
+.rav-list-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 0.625rem;
+    cursor: pointer;
+    padding: 2px 0;
+}
+
+.rav-list-toggle:hover {
+    color: #00d4ff;
+}
+
+.rav-list {
+    padding-left: 20px;
+    margin: 4px 0 8px;
+    font-size: 0.7rem;
+    color: #94a3b8;
+}
+
+.rav-list li {
+    margin-bottom: 3px;
+}
+
+/* Link Card */
+.rav-link-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    background: rgba(0, 212, 255, 0.03);
+    border: 1px solid rgba(0, 212, 255, 0.1);
+    border-radius: 8px;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+
+.rav-link-card:hover {
+    background: rgba(0, 212, 255, 0.06);
+    border-color: rgba(0, 212, 255, 0.2);
+}
+
+.rav-link-card-title {
+    display: block;
+    font-size: 0.7rem;
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.rav-link-card-domain {
+    display: block;
+    font-size: 0.6rem;
+    color: #64748b;
+    margin-top: 1px;
+}
+
+/* Metadata Footer */
+.rav-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rav-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.6rem;
+    color: #475569;
+}
+
+/* Empty */
+.rav-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 6px;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 0.7rem;
+}
+
 /* ── Scratchpad View ───────────────────────────────── */
 .scratchpad-view {
     display: flex;

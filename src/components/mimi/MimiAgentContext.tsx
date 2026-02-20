@@ -64,7 +64,7 @@ interface ToolPill {
     messageIndex: number; // M2: which assistant message (by index) triggered this tool
 }
 
-export type ComputerView = 'idle' | 'browsing' | 'coding' | 'terminal' | 'planning' | 'file-manager' | 'scratchpad';
+export type ComputerView = 'idle' | 'browsing' | 'coding' | 'terminal' | 'planning' | 'file-manager' | 'scratchpad' | 'artifacts';
 
 export interface MimiAgentContextValue {
     // Engine
