@@ -235,18 +235,36 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
     {
         name: 'update_plan',
-        description: 'Erstellt oder aktualisiert den Aufgabenplan (todo.md). Nutze dies bei komplexen Aufgaben um den Fortschritt zu tracken. Jede Aufgabe hat einen Status: pending, in_progress, oder done.',
+        description: 'Aktualisiert das Agent-Scratchpad (3 Dateien). Nutze target: "todo" für Aufgabenplan mit Checkboxen, "notes" für Beobachtungen und Zwischenergebnisse, "context" für Key-Entscheidungen und Constraints. Operation "replace" überschreibt die Datei, "append" hängt an.',
         parameters: [
             {
                 name: 'tasks',
                 type: 'array',
-                description: 'Array von Aufgaben: [{"label": "Daten sammeln", "status": "done"}, {"label": "Analyse", "status": "in_progress"}]',
-                required: true
+                description: 'Array von Aufgaben (nur bei target="todo"): [{"label": "Daten sammeln", "status": "done"}, {"label": "Analyse", "status": "in_progress"}]',
+                required: false
             },
             {
                 name: 'title',
                 type: 'string',
-                description: 'Optionaler Titel für den Plan',
+                description: 'Optionaler Titel für den Plan (nur bei target="todo")',
+                required: false
+            },
+            {
+                name: 'target',
+                type: 'string',
+                description: 'Ziel-Datei: "todo" (Aufgaben/Checkboxen), "notes" (Beobachtungen/Findings), "context" (Entscheidungen/Constraints). Default: "todo"',
+                required: false
+            },
+            {
+                name: 'operation',
+                type: 'string',
+                description: 'Operation: "replace" (überschreiben) oder "append" (anhängen). Default: "replace"',
+                required: false
+            },
+            {
+                name: 'content',
+                type: 'string',
+                description: 'Markdown-Inhalt (bei target="notes" oder "context"). Wird geschrieben/angehängt.',
                 required: false
             }
         ],
@@ -314,7 +332,7 @@ export function getToolDescriptionsForPrompt(): string {
     desc += '- Datei zum Download → **create_file**\n';
     desc += '- Datei löschen → **delete_file**\n';
     desc += '- Datei verschieben/umbenennen → **move_file**\n';
-    desc += '- Komplexe Aufgabe planen → **update_plan** (erstelle Plan, dann arbeite Schritte ab)\n';
+    desc += '- Komplexe Aufgabe planen / Notizen / Kontext speichern → **update_plan** (target: todo/notes/context)\\n';
     desc += '\n**Format:** ```json\n{"tool": "name", "parameters": {"key": "value"}}\n```\n';
     return desc;
 }

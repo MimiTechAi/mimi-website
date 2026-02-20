@@ -211,39 +211,99 @@ const handleBrowseUrl: ToolHandler = async (params) => {
     }
 };
 
-// ── Update Plan (Manus-style todo.md scratchpad) ─────────
+// ── Update Plan (3-file scratchpad: todo, notes, context) ────
+
+const SCRATCHPAD_PATHS: Record<string, string> = {
+    todo: '/workspace/todo.md',
+    notes: '/workspace/notes.md',
+    context: '/workspace/context.md',
+};
 
 const handleUpdatePlan: ToolHandler = async (params) => {
-    const tasks = params.tasks as Array<{ label: string; status?: string; done?: boolean }>;
-    const title = (params.title as string) || 'MIMI Task Plan';
+    const target = (params.target as string) || 'todo';
+    const operation = (params.operation as string) || 'replace';
+    const filePath = SCRATCHPAD_PATHS[target] || SCRATCHPAD_PATHS.todo;
 
     try {
         const fs = getMimiFilesystem();
 
-        // Build markdown todo
-        let md = `# ${title}\n\n`;
-        md += `> Updated: ${new Date().toLocaleString('de-DE')}\n\n`;
+        // ── Target: todo (structured task list) ──
+        if (target === 'todo') {
+            const tasks = params.tasks as Array<{ label: string; status?: string; done?: boolean }> | undefined;
+            const title = (params.title as string) || 'MIMI Task Plan';
 
-        for (const task of tasks) {
-            const status = task.status || (task.done ? 'done' : 'pending');
-            const icon = status === 'done' ? '✅' : status === 'in_progress' ? '🔄' : '⬜';
-            const checkbox = status === 'done' ? '[x]' : status === 'in_progress' ? '[/]' : '[ ]';
-            md += `- ${checkbox} ${icon} ${task.label}\n`;
+            if (tasks && tasks.length > 0) {
+                let md = `# ${title}\n\n`;
+                md += `> Updated: ${new Date().toLocaleString('de-DE')}\n\n`;
+
+                for (const task of tasks) {
+                    const status = task.status || (task.done ? 'done' : 'pending');
+                    const icon = status === 'done' ? '✅' : status === 'in_progress' ? '🔄' : '⬜';
+                    const checkbox = status === 'done' ? '[x]' : status === 'in_progress' ? '[/]' : '[ ]';
+                    md += `- ${checkbox} ${icon} ${task.label}\n`;
+                }
+
+                if (operation === 'append') {
+                    try {
+                        const existing = await fs.readFile(filePath);
+                        await fs.writeFile(filePath, existing + '\n' + md);
+                    } catch { await fs.writeFile(filePath, md); }
+                } else {
+                    await fs.writeFile(filePath, md);
+                }
+
+                const done = tasks.filter(t => t.status === 'done' || t.done).length;
+                const total = tasks.length;
+                return {
+                    success: true,
+                    output: `📋 Plan updated (${target}): ${done}/${total} tasks complete.\n\n${md}`,
+                    data: { path: filePath, done, total }
+                };
+            } else {
+                // Fallback: raw content for todo
+                const content = (params.content as string) || '';
+                if (operation === 'append') {
+                    try {
+                        const existing = await fs.readFile(filePath);
+                        await fs.writeFile(filePath, existing + '\n' + content);
+                    } catch { await fs.writeFile(filePath, content); }
+                } else {
+                    await fs.writeFile(filePath, content);
+                }
+                return { success: true, output: `📋 ${target}.md updated.`, data: { path: filePath } };
+            }
         }
 
-        // Write to workspace
-        await fs.writeFile('/workspace/.mimi/todo.md', md);
+        // ── Target: notes or context (raw markdown) ──
+        const content = (params.content as string) || '';
+        if (!content) {
+            return { success: false, output: `No content provided for ${target}.md` };
+        }
 
-        const done = tasks.filter(t => t.status === 'done' || t.done).length;
-        const total = tasks.length;
+        const timestamp = `\n\n> [${new Date().toLocaleTimeString('de-DE')}] `;
 
+        if (operation === 'append') {
+            try {
+                const existing = await fs.readFile(filePath);
+                await fs.writeFile(filePath, existing + timestamp + content);
+            } catch {
+                // File doesn't exist → create with header
+                const header = target === 'notes' ? '# Agent Notes\n' : '# Agent Context\n';
+                await fs.writeFile(filePath, header + timestamp + content);
+            }
+        } else {
+            const header = target === 'notes' ? '# Agent Notes\n\n' : '# Agent Context\n\n';
+            await fs.writeFile(filePath, header + content);
+        }
+
+        const emoji = target === 'notes' ? '📝' : '🧠';
         return {
             success: true,
-            output: `📋 Plan updated: ${done}/${total} tasks complete.\n\n${md}`,
-            data: { path: '/workspace/.mimi/todo.md', done, total }
+            output: `${emoji} ${target}.md ${operation === 'append' ? 'updated' : 'replaced'}.`,
+            data: { path: filePath }
         };
     } catch (e: unknown) {
-        return { success: false, output: `Plan update failed: ${e instanceof Error ? e.message : String(e)}` };
+        return { success: false, output: `Scratchpad update failed: ${e instanceof Error ? e.message : String(e)}` };
     }
 };
 

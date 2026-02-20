@@ -101,16 +101,20 @@ export class AgentComputer {
             const fsResult = await fs.initialize();
             if (!fsResult.success) throw new Error(`Filesystem: ${fsResult.message}`);
 
-            // 1b. Create scratchpad directory & todo.md (Manus-style)
+            // 1b. Create 3-file scratchpad (Manus-style planning system)
             try {
-                await fs.createDirectory('/workspace/.mimi');
-                const todoExists = await fs.exists('/workspace/.mimi/todo.md');
-                if (!todoExists) {
-                    await fs.writeFile('/workspace/.mimi/todo.md', '# MIMI Task Plan\n\n> No tasks yet. Use `update_plan` to create a plan.\n');
+                const scratchpadFiles: Array<{ path: string; header: string }> = [
+                    { path: '/workspace/todo.md', header: '# MIMI Task Plan\n\n> No tasks yet. Use `update_plan` to create a plan.\n' },
+                    { path: '/workspace/notes.md', header: '# Agent Notes\n\n> Observations and findings will appear here.\n' },
+                    { path: '/workspace/context.md', header: '# Agent Context\n\n> Key decisions and constraints are stored here.\n' },
+                ];
+                for (const { path, header } of scratchpadFiles) {
+                    const exists = await fs.exists(path);
+                    if (!exists) await fs.writeFile(path, header);
                 }
             } catch { /* non-critical */ }
-            onProgress?.('Scratchpad initialized');
-            this.emit({ type: 'boot', message: 'Scratchpad /workspace/.mimi/todo.md ready' });
+            onProgress?.('Scratchpad initialized (todo, notes, context)');
+            this.emit({ type: 'boot', message: 'Scratchpad ready: todo.md, notes.md, context.md' });
 
             // 2. Python Runtime (Pyodide) — lazy load, don't block boot
             onProgress?.('Python runtime available (lazy-loaded)');

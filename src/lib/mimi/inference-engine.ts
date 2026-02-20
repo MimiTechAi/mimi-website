@@ -892,6 +892,23 @@ export class MimiEngine {
                 // Memory is non-critical, don't block
             }
 
+            // Phase 4b: Scratchpad context.md injection — inject accumulating agent context
+            try {
+                const { getMimiFilesystem } = await import('./workspace/filesystem');
+                const fs = getMimiFilesystem();
+                const contextContent = await fs.readFile('/workspace/context.md');
+                if (contextContent && contextContent.length > 50) {
+                    // Trim to last 1500 chars to avoid blowing up context window
+                    const trimmed = contextContent.length > 1500
+                        ? '...\n' + contextContent.slice(-1500)
+                        : contextContent;
+                    systemPrompt += '\n\n## AGENT CONTEXT (from previous steps)\n' + trimmed;
+                    console.log('[MIMI] 📋 Scratchpad context.md injected');
+                }
+            } catch {
+                // context.md may not exist yet or fs not initialized — non-critical
+            }
+
             const actionTrigger = this.detectActionIntent(userMsg);
             if (actionTrigger) {
                 systemPrompt += actionTrigger;
