@@ -25,6 +25,8 @@ import { useMimiAgentContext } from "../MimiAgentContext";
 import type { ComputerView } from "../MimiAgentContext";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { sanitizeHtml } from "../utils/sanitize";
+import useAgentComputer from "@/hooks/mimi/useAgentComputer";
+import type { AgentComputerState, AgentComputerActions } from "@/hooks/mimi/useAgentComputer";
 import {
     Globe, Terminal, FileCode2, Copy, Download, Brain,
     Bot, Search, PenTool, Check, ChevronRight, ChevronDown,
@@ -102,8 +104,14 @@ interface TimelineEntry {
 // MAIN COMPONENT — Unified Computer Panel
 // ═════════════════════════════════════════════════════════════
 
+// ── Shared AgentComputer context (avoids duplicate hook calls in child views) ──
+import { createContext, useContext } from "react";
+const AgentComputerCtx = createContext<{ state: AgentComputerState; actions: AgentComputerActions } | null>(null);
+function useComputer() { return useContext(AgentComputerCtx)!; }
+
 export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
     const ctx = useMimiAgentContext();
+    const [computer, computerActions] = useAgentComputer();
     const view = ctx.computerView;
     const viewColor = VIEW_COLORS[view];
     const ViewIcon = VIEW_ICONS[view];
@@ -112,6 +120,13 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
     const [timelineOpen, setTimelineOpen] = useState(false);
     const [prevView, setPrevView] = useState<ComputerView>(view);
     const [viewKey, setViewKey] = useState(0);
+
+    // ── Auto-boot AgentComputer ──────────────────────────────
+    useEffect(() => {
+        if (!computer.isReady && !computer.isBooting) {
+            computerActions.boot();
+        }
+    }, [computer.isReady, computer.isBooting, computerActions]);
 
     // ── Activity Timeline State ──────────────────────────────
     const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
@@ -202,126 +217,139 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
         if (ctx.agentEvents.activePlan) setTaskTreeOpen(true);
     }, [ctx.agentEvents.activePlan]);
 
+    const computerCtxValue = useMemo(() => ({
+        state: computer, actions: computerActions
+    }), [computer, computerActions]);
+
     return (
-        <div className={`mimi-panel panel-right${ctx.isGenerating ? ' agent-active' : ''}`}>
-            {/* 3D Pendulum / Orb */}
-            <div className="sandbox-pendulum-container">
-                <div className="pendulum-orb" />
-                <div className="pendulum-core" />
-                <div className="pendulum-ring" />
-                <div className="pendulum-ring-2" />
-            </div>
-
-            {/* ── OS Header ─────────────────────── */}
-            <div className="agent-os-header">
-                <div className="os-branding">
-                    <Brain className="w-4 h-4 text-brand-cyan" />
-                    <span>MIMI&apos;s Computer</span>
-                </div>
-                <div className="os-status">
-                    <span className={`status-dot ${ctx.isGenerating ? 'active' : ''}`} />
-                    <span>{ctx.isGenerating ? 'Aktiv' : 'Standby'}</span>
-                </div>
-                <div className="os-controls">
-                    <span className="minimize" />
-                    <span className="maximize" />
-                    <span className="close" />
-                </div>
-            </div>
-
-            {/* ── Active View Indicator (replaces tab bar) ─── */}
-            <div className="computer-view-bar">
-                <div className="view-indicator" style={{ '--view-color': viewColor } as React.CSSProperties}>
-                    <ViewIcon className="w-3.5 h-3.5" />
-                    <span>{viewLabel}</span>
-                    {viewSubtitle && <span className="view-subtitle">· {viewSubtitle}</span>}
-                    {ctx.isGenerating && <div className="view-pulse" />}
+        <AgentComputerCtx.Provider value={computerCtxValue}>
+            <div className={`mimi-panel panel-right${ctx.isGenerating ? ' agent-active' : ''}`}>
+                {/* 3D Pendulum / Orb */}
+                <div className="sandbox-pendulum-container">
+                    <div className="pendulum-orb" />
+                    <div className="pendulum-core" />
+                    <div className="pendulum-ring" />
+                    <div className="pendulum-ring-2" />
                 </div>
 
-                {/* Active Agent Avatars */}
-                <div className="agent-avatars">
-                    {ctx.activeSwarmAgents.length > 0 ? (
-                        ctx.activeSwarmAgents.slice(0, 4).map((agentId) => {
-                            const spec = AGENT_SPECS[agentId] || AGENT_SPECS['general'];
-                            const AgentIcon = spec.icon;
-                            return (
-                                <div
-                                    key={agentId}
-                                    className="agent-avatar active"
-                                    title={spec.label}
-                                    style={{ '--agent-color': spec.color } as React.CSSProperties}
-                                >
-                                    <AgentIcon className="w-3 h-3" />
-                                </div>
-                            );
-                        })
-                    ) : (
-                        <div className="agent-avatar idle" title="Kein Agent aktiv">
-                            <Bot className="w-3 h-3" />
+                {/* ── OS Header ─────────────────────── */}
+                <div className="agent-os-header">
+                    <div className="os-branding">
+                        <Brain className="w-4 h-4 text-brand-cyan" />
+                        <span>MIMI&apos;s Computer</span>
+                    </div>
+                    <div className="os-status">
+                        <span className={`status-dot ${ctx.isGenerating ? 'active' : ''}`} />
+                        <span>{ctx.isGenerating ? 'Aktiv' : 'Standby'}</span>
+                    </div>
+                    <div className="os-controls">
+                        <span className="minimize" />
+                        <span className="maximize" />
+                        <span className="close" />
+                    </div>
+                </div>
+
+                {/* ── Active View Indicator (replaces tab bar) ─── */}
+                <div className="computer-view-bar">
+                    <div className="view-indicator" style={{ '--view-color': viewColor } as React.CSSProperties}>
+                        <ViewIcon className="w-3.5 h-3.5" />
+                        <span>{viewLabel}</span>
+                        {viewSubtitle && <span className="view-subtitle">· {viewSubtitle}</span>}
+                        {ctx.isGenerating && <div className="view-pulse" />}
+                    </div>
+
+                    {/* Active Agent Avatars */}
+                    <div className="agent-avatars">
+                        {ctx.activeSwarmAgents.length > 0 ? (
+                            ctx.activeSwarmAgents.slice(0, 4).map((agentId) => {
+                                const spec = AGENT_SPECS[agentId] || AGENT_SPECS['general'];
+                                const AgentIcon = spec.icon;
+                                return (
+                                    <div
+                                        key={agentId}
+                                        className="agent-avatar active"
+                                        title={spec.label}
+                                        style={{ '--agent-color': spec.color } as React.CSSProperties}
+                                    >
+                                        <AgentIcon className="w-3 h-3" />
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="agent-avatar idle" title="Kein Agent aktiv">
+                                <Bot className="w-3 h-3" />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Timeline toggle */}
+                    <button
+                        className={`timeline-toggle-btn${timelineOpen ? ' active' : ''}`}
+                        onClick={() => setTimelineOpen(prev => !prev)}
+                        title={timelineOpen ? 'Activity Log ausblenden' : 'Activity Log anzeigen'}
+                    >
+                        <Activity className="w-3.5 h-3.5" />
+                        {timeline.filter(e => e.status === 'running').length > 0 && (
+                            <span className="timeline-badge">{timeline.filter(e => e.status === 'running').length}</span>
+                        )}
+                    </button>
+
+                    {/* Task tree toggle */}
+                    <button
+                        className="task-tree-toggle"
+                        onClick={() => setTaskTreeOpen(prev => !prev)}
+                        title={taskTreeOpen ? 'Task Tree ausblenden' : 'Task Tree anzeigen'}
+                    >
+                        <ListTodo className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+
+                {/* ── Computer Viewport ─────────────── */}
+                <div className="computer-viewport">
+                    {/* Claude-style Artifact Panel overlay */}
+                    {ctx.activeDetectedArtifact && (
+                        <ArtifactPanel
+                            artifact={ctx.activeDetectedArtifact}
+                            onClose={ctx.closeArtifact}
+                        />
+                    )}
+
+                    {/* Auto-switching views based on computerView */}
+                    <div key={viewKey} className={`computer-view-content view-${view}`} style={{ '--view-color': viewColor } as React.CSSProperties}>
+                        {view === 'browsing' && <BrowserView />}
+                        {view === 'terminal' && <TerminalView />}
+                        {view === 'coding' && <EditorView />}
+                        {view === 'planning' && <PlanningView />}
+                        {view === 'idle' && <IdleView />}
+                        {view === 'file-manager' && <FileManagerView />}
+                    </div>
+
+                    {/* ── Activity Timeline Overlay ── */}
+                    {timelineOpen && (
+                        <div className="activity-timeline-overlay">
+                            <ActivityTimeline entries={timeline} />
+                        </div>
+                    )}
+
+                    {/* ── Persistent Task Tree Overlay ── */}
+                    {taskTreeOpen && ctx.agentEvents.activePlan && (
+                        <div className="task-tree-overlay">
+                            <SwarmTaskTree />
+                        </div>
+                    )}
+
+                    {/* ── Process List Overlay ── */}
+                    {computer.runningProcesses.length > 0 && (
+                        <div className="process-list-overlay">
+                            <ProcessListPanel />
                         </div>
                     )}
                 </div>
 
-                {/* Timeline toggle */}
-                <button
-                    className={`timeline-toggle-btn${timelineOpen ? ' active' : ''}`}
-                    onClick={() => setTimelineOpen(prev => !prev)}
-                    title={timelineOpen ? 'Activity Log ausblenden' : 'Activity Log anzeigen'}
-                >
-                    <Activity className="w-3.5 h-3.5" />
-                    {timeline.filter(e => e.status === 'running').length > 0 && (
-                        <span className="timeline-badge">{timeline.filter(e => e.status === 'running').length}</span>
-                    )}
-                </button>
-
-                {/* Task tree toggle */}
-                <button
-                    className="task-tree-toggle"
-                    onClick={() => setTaskTreeOpen(prev => !prev)}
-                    title={taskTreeOpen ? 'Task Tree ausblenden' : 'Task Tree anzeigen'}
-                >
-                    <ListTodo className="w-3.5 h-3.5" />
-                </button>
+                {/* ── Resource Status Bar ─────────────── */}
+                <ResourceStatusBar />
             </div>
-
-            {/* ── Computer Viewport ─────────────── */}
-            <div className="computer-viewport">
-                {/* Claude-style Artifact Panel overlay */}
-                {ctx.activeDetectedArtifact && (
-                    <ArtifactPanel
-                        artifact={ctx.activeDetectedArtifact}
-                        onClose={ctx.closeArtifact}
-                    />
-                )}
-
-                {/* Auto-switching views based on computerView */}
-                <div key={viewKey} className={`computer-view-content view-${view}`} style={{ '--view-color': viewColor } as React.CSSProperties}>
-                    {view === 'browsing' && <BrowserView />}
-                    {view === 'terminal' && <TerminalView />}
-                    {view === 'coding' && <EditorView />}
-                    {view === 'planning' && <PlanningView />}
-                    {view === 'idle' && <IdleView />}
-                    {view === 'file-manager' && <FileManagerView />}
-                </div>
-
-                {/* ── Activity Timeline Overlay ── */}
-                {timelineOpen && (
-                    <div className="activity-timeline-overlay">
-                        <ActivityTimeline entries={timeline} />
-                    </div>
-                )}
-
-                {/* ── Persistent Task Tree Overlay ── */}
-                {taskTreeOpen && ctx.agentEvents.activePlan && (
-                    <div className="task-tree-overlay">
-                        <SwarmTaskTree />
-                    </div>
-                )}
-            </div>
-
-            {/* ── Resource Status Bar ─────────────── */}
-            <ResourceStatusBar />
-        </div>
+        </AgentComputerCtx.Provider>
     );
 });
 
@@ -400,25 +428,21 @@ function ActivityTimeline({ entries }: { entries: TimelineEntry[] }) {
 
 function ResourceStatusBar() {
     const ctx = useMimiAgentContext();
-    const [cpuLevel, setCpuLevel] = useState(0);
-    const [networkActive, setNetworkActive] = useState(false);
+    const { state: computer } = useComputer();
+    const networkActive = ctx.computerView === 'browsing' && ctx.isGenerating;
 
-    // Simulate CPU based on agent activity
-    useEffect(() => {
-        if (ctx.isGenerating) {
-            const interval = setInterval(() => {
-                setCpuLevel(30 + Math.random() * 60);
-            }, 400);
-            return () => clearInterval(interval);
-        } else {
-            setCpuLevel(prev => prev > 0 ? 0 : prev);
-        }
-    }, [ctx.isGenerating]);
+    // Derive CPU from real process count + agent status
+    const cpuLevel = useMemo(() => {
+        if (!computer.isReady) return 0;
+        const runCount = computer.runningProcesses.length;
+        const base = ctx.isGenerating ? 40 : 0;
+        return Math.min(100, base + runCount * 15);
+    }, [computer.isReady, computer.runningProcesses.length, ctx.isGenerating]);
 
-    // Network indicator during browsing
-    useEffect(() => {
-        setNetworkActive(ctx.computerView === 'browsing' && ctx.isGenerating);
-    }, [ctx.computerView, ctx.isGenerating]);
+    // Derive file count from real status
+    const fileCount = computer.status?.filesystem?.fileCount ?? 0;
+    const uptime = computer.status?.uptime ?? 0;
+    const uptimeStr = uptime > 0 ? `${Math.round(uptime / 1000)}s` : '—';
 
     return (
         <div className="resource-status-bar">
@@ -433,9 +457,9 @@ function ResourceStatusBar() {
                 <span className="resource-value">{Math.round(cpuLevel)}%</span>
             </div>
 
-            <div className="resource-item" title="WebGPU Memory">
+            <div className="resource-item" title="Dateien im Workspace">
                 <Database className="w-3 h-3" />
-                <span className="resource-value mem">{ctx.isReady ? 'Active' : '—'}</span>
+                <span className="resource-value mem">{computer.isReady ? `${fileCount} Files` : '—'}</span>
             </div>
 
             <div className={`resource-item${networkActive ? ' net-active' : ''}`} title="Netzwerk">
@@ -444,10 +468,15 @@ function ResourceStatusBar() {
                 {networkActive && <div className="net-pulse" />}
             </div>
 
-            {ctx.agentEvents.elapsedTime > 0 && (
-                <div className="resource-item elapsed" title="Verstrichene Zeit">
+            <div className="resource-item" title="Prozesse">
+                <Layers className="w-3 h-3" />
+                <span className="resource-value">{computer.runningProcesses.length} running</span>
+            </div>
+
+            {(ctx.agentEvents.elapsedTime > 0 || uptime > 0) && (
+                <div className="resource-item elapsed" title="Uptime">
                     <Clock className="w-3 h-3" />
-                    <span className="resource-value">{(ctx.agentEvents.elapsedTime / 1000).toFixed(1)}s</span>
+                    <span className="resource-value">{ctx.agentEvents.elapsedTime > 0 ? `${(ctx.agentEvents.elapsedTime / 1000).toFixed(1)}s` : uptimeStr}</span>
                 </div>
             )}
         </div>
@@ -738,11 +767,36 @@ function BrowserView() {
 
 function TerminalView() {
     const ctx = useMimiAgentContext();
+    const { state: computer, actions } = useComputer();
     const termEndRef = useRef<HTMLDivElement>(null);
+    const [inputCmd, setInputCmd] = useState('');
+
+    // Merge real AgentComputer terminal output with legacy ctx.terminalLines
+    const mergedLines = useMemo(() => {
+        const computerLines = computer.terminalHistory.map(t => ({
+            prefix: t.type === 'input' ? 'mimi@agent:~$' : t.type === 'stderr' ? '✗' : t.type === 'system' ? '⚙' : '→',
+            msg: t.content,
+            type: t.type === 'stderr' ? 'error' as const : t.type === 'system' ? 'info' as const : t.type === 'input' ? 'tool' as const : 'success' as const,
+            _ts: t.timestamp,
+        }));
+        const ctxLines = ctx.terminalLines.map(l => ({ ...l, _ts: 0 }));
+        // Show AgentComputer lines first; fallback to ctx lines if none
+        return computerLines.length > 0 ? computerLines : ctxLines;
+    }, [computer.terminalHistory, ctx.terminalLines]);
 
     useEffect(() => {
         termEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [ctx.terminalLines]);
+    }, [mergedLines]);
+
+    const handleShellSubmit = useCallback(async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!inputCmd.trim()) return;
+        const cmd = inputCmd.trim();
+        setInputCmd('');
+        try {
+            await actions.executeShell(cmd);
+        } catch { /* displayed in terminal */ }
+    }, [inputCmd, actions]);
 
     return (
         <div className="computer-terminal-view">
@@ -754,14 +808,14 @@ function TerminalView() {
                 </div>
                 <span className="terminal-title">mimi@agent:~$</span>
                 <div className="terminal-actions">
-                    <button className="terminal-action-btn" title="Terminal leeren" onClick={() => { }}>
+                    <button className="terminal-action-btn" title="Terminal leeren" onClick={() => actions.clearTerminal()}>
                         <Hash className="w-3 h-3" />
                     </button>
                 </div>
             </div>
             <div className="terminal-box">
-                {ctx.terminalLines.length > 0 ? (
-                    ctx.terminalLines.map((line, i) => (
+                {mergedLines.length > 0 ? (
+                    mergedLines.map((line, i) => (
                         <div className={`tline tline-${line.type || 'info'}`} key={i}>
                             <span className="prefix" style={{
                                 color: line.type === 'error' ? '#ef4444'
@@ -785,6 +839,19 @@ function TerminalView() {
                 </div>
                 <div ref={termEndRef} />
             </div>
+            {/* ── Terminal Input ── */}
+            <form className="terminal-input-bar" onSubmit={handleShellSubmit}>
+                <span className="terminal-input-prompt">$</span>
+                <input
+                    type="text"
+                    className="terminal-input-field"
+                    placeholder="Befehl eingeben..."
+                    value={inputCmd}
+                    onChange={e => setInputCmd(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                />
+            </form>
         </div>
     );
 }
@@ -978,15 +1045,64 @@ function PlanningView() {
 
 function FileManagerView() {
     const ctx = useMimiAgentContext();
+    const { state: computer, actions } = useComputer();
+    const [opfsFiles, setOpfsFiles] = useState<{ name: string; isDirectory: boolean; size?: number }[]>([]);
+
+    // Load real OPFS files from AgentComputer
+    useEffect(() => {
+        if (!computer.isReady) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const entries = await actions.listFiles();
+                if (!cancelled) setOpfsFiles(entries);
+            } catch { /* non-critical */ }
+        })();
+        return () => { cancelled = true; };
+    }, [computer.isReady, actions, computer.terminalHistory.length]);
+
+    const totalFiles = ctx.codeArtifacts.length + ctx.generatedFiles.length + opfsFiles.length;
 
     return (
         <div className="computer-files-view">
             <div className="files-header">
                 <FileCode2 className="w-4 h-4 text-brand-cyan" />
-                <span>Workspace ({ctx.codeArtifacts.length + ctx.generatedFiles.length} Dateien)</span>
+                <span>Workspace ({totalFiles} Dateien)</span>
             </div>
-            {(ctx.codeArtifacts.length + ctx.generatedFiles.length) > 0 ? (
+            {totalFiles > 0 ? (
                 <div className="files-grid">
+                    {/* OPFS workspace files (real) */}
+                    {opfsFiles.map((file, i) => (
+                        <div key={`opfs-${i}`} className="file-card">
+                            {file.isDirectory
+                                ? <Layers className="w-4 h-4" style={{ color: '#06b6d4' }} />
+                                : <FileCode2 className="w-4 h-4" style={{ color: '#22c55e' }} />}
+                            <span className="file-name">{file.name}</span>
+                            <span className="file-lang">{file.isDirectory ? 'dir' : file.size ? `${file.size}B` : ''}</span>
+                            {!file.isDirectory && (
+                                <button
+                                    className="file-download-btn"
+                                    title="Herunterladen"
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                            const content = await actions.readFile(file.name);
+                                            const blob = new Blob([content], { type: 'text/plain' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = file.name;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                        } catch { /* skip */ }
+                                    }}
+                                >
+                                    <Download className="w-3 h-3" />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                    {/* Code artifacts (from inference) */}
                     {ctx.codeArtifacts.map((art, i) => (
                         <div
                             key={`code-${i}`}
@@ -1015,6 +1131,7 @@ function FileManagerView() {
                             </button>
                         </div>
                     ))}
+                    {/* Generated files */}
                     {ctx.generatedFiles.map((file, i) => (
                         <div key={`file-${i}`} className="file-card">
                             <FileCode2 className="w-4 h-4" style={{ color: '#22c55e' }} />
@@ -1029,6 +1146,59 @@ function FileManagerView() {
                     <span>Noch keine Dateien erstellt</span>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ═════════════════════════════════════════════════════════════
+// COMPONENT: Process List Panel — Running AgentComputer processes
+// ═════════════════════════════════════════════════════════════
+
+function ProcessListPanel() {
+    const { state: computer, actions } = useComputer();
+
+    if (computer.processes.length === 0) return null;
+
+    return (
+        <div className="process-list-inner">
+            <div className="timeline-header">
+                <Cpu className="w-3.5 h-3.5" style={{ color: '#22c55e' }} />
+                <span>Processes</span>
+                <span className="timeline-count">{computer.runningProcesses.length} running</span>
+            </div>
+            <div className="timeline-entries">
+                {computer.processes.slice(0, 10).map(proc => {
+                    const isRunning = proc.status === 'running';
+                    const color = isRunning ? '#22c55e' : proc.status === 'failed' ? '#ef4444' : '#64748b';
+                    const elapsed = proc.endTime
+                        ? `${((proc.endTime - proc.startTime) / 1000).toFixed(1)}s`
+                        : `${((Date.now() - proc.startTime) / 1000).toFixed(0)}s`;
+                    return (
+                        <div key={proc.id} className={`timeline-entry ${proc.status}`} style={{ '--tl-color': color } as React.CSSProperties}>
+                            <div className={`timeline-dot ${proc.status}`}>
+                                {isRunning
+                                    ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    : proc.status === 'completed' ? <Check className="w-2.5 h-2.5" />
+                                        : <AlertCircle className="w-2.5 h-2.5" />}
+                            </div>
+                            <div className="timeline-content">
+                                <span className="timeline-label">{proc.type}: {proc.command.slice(0, 40)}</span>
+                            </div>
+                            <span className="timeline-time">{elapsed}</span>
+                            {isRunning && (
+                                <button
+                                    className="terminal-action-btn"
+                                    title="Kill Process"
+                                    onClick={() => actions.killProcess(proc.id)}
+                                    style={{ marginLeft: 4, color: '#ef4444' }}
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }
