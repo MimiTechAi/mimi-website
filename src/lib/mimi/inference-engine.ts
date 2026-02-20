@@ -11,9 +11,10 @@
 import { MODELS } from './hardware-check';
 import { searchDocuments, loadDocuments, type PDFDocument, type PDFChunk, type PDFSearchResult } from './pdf-processor';
 import { getVectorStore, type SearchResult as VectorSearchResult } from './vector-store';
-import { getOrchestrator, type AgentOrchestrator } from './agent-orchestrator-v2';
+import { getOrchestrator, type AgentOrchestrator, createMoAOrchestrator, SPECIALIST_AGENTS } from './agent-orchestrator-v2';
 import { getMemoryManager, type MemoryManager } from './memory-manager';
-import { getToolDescriptionsForPrompt, parseToolCalls, executeToolCall, type ToolExecutionContext } from './tool-definitions';
+import { getToolDescriptionsForPrompt, parseToolCalls } from './tool-definitions';
+import { getToolRegistry, type ToolExecutionContext } from './tool-registry';
 import { getTaskPlanner, type TaskPlanner, type TaskPlan } from './task-planner';
 import { AgentEvents } from './agent-events';
 import { getAgentMemory, getContextWindowManager, ResultPipeline, type AgentMemoryService, type ContextWindowManager } from './agent-memory';
@@ -164,7 +165,7 @@ export class MimiEngine {
     private isGenerating = false;
     private toolContext: ToolContext = {};
     // FIX-1: 10→3 — verhindert 10x LLM-Calls pro Antwort (war Haupt-Ursache für Langsamkeit)
-    private static MAX_TOOL_ITERATIONS = 3;
+    private static MAX_TOOL_ITERATIONS = 5;
     private taskPlanner?: TaskPlanner;
     private agentMemory?: AgentMemoryService;
     private contextWindowManager?: ContextWindowManager;
@@ -864,6 +865,20 @@ export class MimiEngine {
                 activePlan = this.taskPlanner!.createPlan(userMsg2);
                 activePlan.status = 'executing';
                 console.log(`[MIMI] 📋 Plan created: ${activePlan.title} (${activePlan.steps.length} steps)`);
+
+                // Phase 3: Trigger the MoA Orchestrator (Swarm) in the background
+                // This will emit `AgentEventBus` events to explicitly visualize SOTA Swarm orchestration
+                // in the VirtualSandbox Action Feed, while the main inference loop runs normally.
+                try {
+                    const moa = createMoAOrchestrator(SPECIALIST_AGENTS);
+                    moa.execute(userMsg2, fullMessages).then(moaResult => {
+                        console.log(`[MIMI] 🐝 Swarm background execution completed in ${moaResult.totalDuration}ms`);
+                    }).catch(err => {
+                        console.error(`[MIMI] 🐝 Swarm execution failed:`, err);
+                    });
+                } catch (e) {
+                    console.error(`[MIMI] Failed to start MoA Orchestrator:`, e);
+                }
             }
 
             // ═══════════════════════════════════════════════════════════
@@ -990,14 +1005,21 @@ export class MimiEngine {
                     yield `\n\n🔧 *Tool: ${call.tool}...*\n`;
 
                     try {
-                        const result = await executeToolCall(call, this.toolContext);
+                        // V4: Route through ToolRegistry (unified backend with AgentComputer)
+                        const registry = getToolRegistry();
+                        registry.setContext(this.toolContext);
+                        const result = await registry.execute(call);
                         const duration = Date.now() - toolStartTime;
                         toolResultsText += `\n\n**Tool-Ergebnis (${call.tool}):**\n${result.output}\n`;
                         AgentEvents.toolCallEnd(call.tool, result.success, result.output, duration, activePlan?.steps[currentStepIndex]?.id);
 
-                        // Track file writes
+                        // Track file operations
                         if (call.tool === 'write_file' && call.parameters?.path) {
                             AgentEvents.fileWrite(call.parameters.path as string, 'create');
+                        } else if (call.tool === 'delete_file' && call.parameters?.path) {
+                            AgentEvents.fileWrite(call.parameters.path as string, 'delete');
+                        } else if (call.tool === 'move_file' && call.parameters?.destination) {
+                            AgentEvents.fileWrite(call.parameters.destination as string, 'create');
                         } else if (call.tool === 'create_file' && result.success) {
                             AgentEvents.artifactCreate(
                                 call.parameters?.filename as string || 'output',
@@ -1237,6 +1259,24 @@ Antworte KURZ und DIREKT.`;
         const searchIntent = /(?:such|recherch|find|google|internet|online|aktuell|nachrichten|news|wetter|kurs|preis|aktie).*(?:such|recherch|internet|web|online)|(?:such|recherch|find).*(?:nach|über|zu|im\s*internet|im\s*web|online)|(?:was\s*gibt.*neues|neueste|aktuellste)|(?:aktuell(?:e|en|es|er)?\s+(?:news|nachrichten|event|meldung|entwicklung|trend))|(?:(?:news|nachrichten|neuigkeit)\s+(?:zu|über|aus|in|von))/i;
         if (searchIntent.test(msg)) {
             return '\n\n[DIRECTIVE: Nutze web_search: ```json\n{"tool": "web_search", "parameters": {"query": "..."}}\n```]\n';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 3.5: Browse URL — read/scrape a specific URL
+        // ═══════════════════════════════════════════════════════════
+        const browseIntent = /(?:öffne|besuche|lies|lese|scrape|parse|hole|extrahier).*(?:https?:\/\/|webseite|seite|url|link|artikel)|(?:https?:\/\/\S+)|(?:was\s+steht\s+auf.*(?:seite|url|link|webseite))/i;
+        if (browseIntent.test(msg)) {
+            const urlMatch = msg.match(/https?:\/\/\S+/);
+            const urlHint = urlMatch ? `, "url": "${urlMatch[0]}"` : '';
+            return `\n\n[DIRECTIVE: Nutze browse_url: \`\`\`json\n{"tool": "browse_url", "parameters": {"url": "..."${urlHint ? '' : ''}}}\n\`\`\`]\n`;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // PRIORITY 3.6: Shell/Terminal — run system commands
+        // ═══════════════════════════════════════════════════════════
+        const shellIntent = /(?:führe?\s*aus|run|exec|terminal|shell|bash|command|befehl|pip\s+install|curl\s+|ls\s+|cat\s+|mkdir\s+|grep\s+|head\s+|tail\s+)/i;
+        if (shellIntent.test(msg)) {
+            return '\n\n[DIRECTIVE: Nutze execute_shell: ```json\n{"tool": "execute_shell", "parameters": {"command": "..."}}\n```]\n';
         }
 
         // ═══════════════════════════════════════════════════════════

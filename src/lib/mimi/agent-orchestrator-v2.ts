@@ -1028,6 +1028,14 @@ export class VectorRouter {
         // Sort by score descending
         candidates.sort((a, b) => b.score - a.score);
 
+        // Ensure fallback exists
+        if (candidates.length < 2) {
+            const general = agents.find(a => a.id === 'general');
+            if (general && !candidates.find(c => c.agent.id === 'general')) {
+                candidates.push({ agent: general, score: 0.1 });
+            }
+        }
+
         return candidates;
     }
 
@@ -1099,15 +1107,25 @@ export class MixtureOfAgentsOrchestrator {
         this.eventBus.emit('PLAN_START', { planId: taskId, title: taskDescription, goal: taskDescription, stepCount: 0 }, undefined, taskId);
 
         // Step 1: Decompose task into subtasks
-        this.eventBus.emit('STATUS_CHANGE', { status: 'planning' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'planning', agent: 'Orchestrator' });
         const subtasks = await this.decomposeTask(taskDescription, context);
+
+        // Emit queued steps to the feed
+        subtasks.forEach((st, index) => {
+            this.eventBus.emit('PLAN_STEP_ADD', {
+                stepId: st.id,
+                title: st.description,
+                description: `Requires: ${st.requiredCapabilities.join(', ')}`,
+                index
+            }, st.id, taskId);
+        });
 
         // Step 2: Route each subtask to best specialist
         const assignments = await this.routeSubtasks(subtasks);
 
         // Step 3: Execute subtasks (parallel where possible)
-        this.eventBus.emit('STATUS_CHANGE', { status: 'executing' });
-        const results = await this.executeSubtasks(assignments, context);
+        this.eventBus.emit('STATUS_CHANGE', { status: 'executing', agent: 'Orchestrator' });
+        const results = await this.executeSubtasks(taskId, assignments, context);
 
         // Track agents
         for (const result of results) {
@@ -1117,7 +1135,7 @@ export class MixtureOfAgentsOrchestrator {
         }
 
         // Step 4: Verify results via cross-checking
-        this.eventBus.emit('STATUS_CHANGE', { status: 'verifying' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'verifying', agent: 'Verifier' });
         const verifications = await this.pool.verifier.verifyAll(results);
 
         // Step 5: Conduct consensus voting if needed
@@ -1125,7 +1143,7 @@ export class MixtureOfAgentsOrchestrator {
         // (Consensus voting would be added here for ambiguous decisions)
 
         // Step 6: Synthesize final answer
-        this.eventBus.emit('STATUS_CHANGE', { status: 'synthesizing' });
+        this.eventBus.emit('STATUS_CHANGE', { status: 'synthesizing', agent: 'Orchestrator' });
         const finalAnswer = await this.pool.orchestrator.synthesize(results, verifications);
 
         const totalDuration = Date.now() - startTime;
@@ -1147,77 +1165,122 @@ export class MixtureOfAgentsOrchestrator {
     }
 
     /**
-     * Decompose task into atomic subtasks
+     * Decompose task into a DAG of atomic subtasks for parallel Swarm execution
      */
     private async decomposeTask(
         description: string,
         context: ChatMessage[]
     ): Promise<Subtask[]> {
-        // Simple heuristic decomposition
-        // In production, would use LLM to generate subtasks
-
+        // Task Decomposition heuristic to build a Directed Acyclic Graph (DAG)
+        // In full production, an LLM call would generate this JSON structure.
         const subtasks: Subtask[] = [];
+        const lowerDesc = description.toLowerCase();
 
-        // Check for common task patterns
-        const needsResearch = /search|find|research|look up|investigate/i.test(description);
-        const needsAnalysis = /analyze|examine|evaluate|assess/i.test(description);
-        const needsCode = /code|program|implement|build|create/i.test(description);
-        const needsMath = /calculate|compute|math|equation|formula/i.test(description);
+        // 1. Research Phase (Often parallelizable if multiple domains)
+        const needsResearch = /search|find|recherch|look up|investigate|vergleich|aktuell/i.test(lowerDesc);
+        let currentDeps: string[] = [];
 
         if (needsResearch) {
+            const researchId1 = `sub-${Date.now()}-research-1`;
+            const researchId2 = `sub-${Date.now()}-research-2`;
+
+            // Branch 1: Primary deep research
             subtasks.push({
-                id: `sub-${Date.now()}-research`,
-                description: `Research: ${description}`,
+                id: researchId1,
+                description: `Deep Search: Primary facts for "${description.slice(0, 30)}..."`,
                 dependencies: [],
-                requiredCapabilities: ['web_search', 'rag', 'search'],
+                requiredCapabilities: ['deep-research', 'multi-source'],
                 priority: 4,
                 estimatedComplexity: 6
             });
-        }
 
-        if (needsAnalysis) {
+            // Branch 2: Cross-reference / Context gathering (runs in parallel)
             subtasks.push({
-                id: `sub-${Date.now()}-analysis`,
-                description: `Analyze: ${description}`,
-                dependencies: needsResearch ? [subtasks[0].id] : [],
-                requiredCapabilities: ['analyze', 'evaluate', 'reasoning'],
-                priority: 3,
-                estimatedComplexity: 7
-            });
-        }
-
-        if (needsCode) {
-            subtasks.push({
-                id: `sub-${Date.now()}-code`,
-                description: `Implement: ${description}`,
+                id: researchId2,
+                description: `Context Search: Alternative perspectives and current events`,
                 dependencies: [],
-                requiredCapabilities: ['python', 'javascript', 'code'],
-                priority: 4,
-                estimatedComplexity: 8
-            });
-        }
-
-        if (needsMath) {
-            subtasks.push({
-                id: `sub-${Date.now()}-math`,
-                description: `Calculate: ${description}`,
-                dependencies: [],
-                requiredCapabilities: ['math', 'calculate', 'statistics'],
+                requiredCapabilities: ['web-search', 'fact-check'],
                 priority: 3,
                 estimatedComplexity: 5
             });
+
+            // Subsequent steps depend on BOTH research branches completing
+            currentDeps = [researchId1, researchId2];
         }
 
-        // Fallback: treat as general task
-        if (subtasks.length === 0) {
+        // 2. Analysis Phase
+        const needsAnalysis = /analyze|examine|evaluate|assess|analysier|vergleich|auswert/i.test(lowerDesc);
+        if (needsAnalysis) {
+            const analysisId = `sub-${Date.now()}-analysis`;
             subtasks.push({
-                id: `sub-${Date.now()}-general`,
-                description,
-                dependencies: [],
-                requiredCapabilities: ['conversation', 'qa'],
-                priority: 2,
-                estimatedComplexity: 4
+                id: analysisId,
+                description: `Analyze data and synthesize research findings`,
+                dependencies: [...currentDeps], // Depends on research phase if it exists
+                requiredCapabilities: ['analyze', 'pandas', 'statistics', 'consensus'],
+                priority: 4,
+                estimatedComplexity: 8
             });
+            currentDeps = [analysisId];
+        }
+
+        // 3. Math/Logic Phase
+        const needsMath = /calculate|compute|math|equation|formula|berechn|kalkulier/i.test(lowerDesc);
+        if (needsMath) {
+            const mathId = `sub-${Date.now()}-math`;
+            subtasks.push({
+                id: mathId,
+                description: `Compute required mathematical models`,
+                dependencies: [...currentDeps],
+                requiredCapabilities: ['math', 'calculate', 'statistics'],
+                priority: 3,
+                estimatedComplexity: 7
+            });
+            currentDeps = [mathId]; // Math results are needed for next steps
+        }
+
+        // 4. Execution / Coding Phase
+        const needsCode = /code|program|implement|build|create|script|entwick/i.test(lowerDesc);
+        if (needsCode) {
+            const codeId = `sub-${Date.now()}-code`;
+            subtasks.push({
+                id: codeId,
+                description: `Implement code/script solution`,
+                dependencies: [...currentDeps],
+                requiredCapabilities: ['python', 'javascript', 'code'],
+                priority: 5,
+                estimatedComplexity: 9
+            });
+
+            // Add a Security Audit step that runs immediately AFTER code creation
+            const securityId = `sub-${Date.now()}-security`;
+            subtasks.push({
+                id: securityId,
+                description: `Audit generated code for security flaws`,
+                dependencies: [codeId],
+                requiredCapabilities: ['security', 'audit', 'code-review'],
+                priority: 4,
+                estimatedComplexity: 6
+            });
+
+            currentDeps = [securityId];
+        }
+
+        // 5. Final Synthesis / Formatting Phase
+        // Always include a final synthesis step that depends on all previous steps
+        const synthesisId = `sub-${Date.now()}-synthesis`;
+        subtasks.push({
+            id: synthesisId,
+            description: `Draft final response and format layout`,
+            dependencies: currentDeps.length > 0 ? [...currentDeps] : [],
+            requiredCapabilities: ['write', 'summarize', 'report'],
+            priority: 2,
+            estimatedComplexity: 4
+        });
+
+        // Ensure we always have at least the synthesis step if nothing else matched
+        if (subtasks.length === 1 && subtasks[0].id === synthesisId) {
+            subtasks[0].description = `Process general request: ${description.slice(0, 50)}...`;
+            subtasks[0].requiredCapabilities = ['conversation', 'qa'];
         }
 
         return subtasks;
@@ -1265,6 +1328,7 @@ export class MixtureOfAgentsOrchestrator {
      * Execute subtasks with dependency resolution
      */
     private async executeSubtasks(
+        taskId: string,
         assignments: AgentAssignment[],
         context: ChatMessage[]
     ): Promise<SubtaskResult[]> {
@@ -1290,7 +1354,7 @@ export class MixtureOfAgentsOrchestrator {
 
             // Execute ready tasks in parallel
             const batch = await Promise.all(
-                ready.map(a => this.executeSubtask(a, context))
+                ready.map(a => this.executeSubtask(taskId, a, context))
             );
 
             results.push(...batch);
@@ -1306,18 +1370,35 @@ export class MixtureOfAgentsOrchestrator {
      * Execute single subtask with fallback
      */
     private async executeSubtask(
+        taskId: string,
         assignment: AgentAssignment,
         context: ChatMessage[]
     ): Promise<SubtaskResult> {
         const startTime = Date.now();
         const { subtask, primaryAgent, fallbackAgents } = assignment;
 
-        // Note: Agent selected (would emit custom event if needed, currently using planStepAdd)
+        this.eventBus.emit('STEP_START', {
+            stepId: subtask.id,
+            title: subtask.description,
+            tool: primaryAgent.name
+        }, subtask.id, taskId);
+
+        // Simulate agent task duration (1.5 - 3 seconds per step)
+        const delay = Math.floor(Math.random() * 1500) + 1500;
+        await new Promise(resolve => setTimeout(resolve, delay));
 
         try {
             // Simulate agent execution
             // In production, would call actual LLM with agent's system prompt
             const output = `[${primaryAgent.name}] Completed: ${subtask.description}`;
+
+            const duration = Date.now() - startTime;
+            this.eventBus.emit('STEP_COMPLETE', {
+                stepId: subtask.id,
+                result: output,
+                duration,
+                confidence: assignment.confidence
+            }, subtask.id, taskId);
 
             return {
                 subtaskId: subtask.id,
@@ -1325,35 +1406,27 @@ export class MixtureOfAgentsOrchestrator {
                 output,
                 success: true,
                 confidence: assignment.confidence,
-                duration: Date.now() - startTime
+                duration
             };
         } catch (error) {
-            // Try fallback agents
-            for (const fallback of fallbackAgents) {
-                try {
-                    const output = `[${fallback.name}] (Fallback) Completed: ${subtask.description}`;
-                    return {
-                        subtaskId: subtask.id,
-                        agentId: fallback.id,
-                        output,
-                        success: true,
-                        confidence: assignment.confidence * 0.8,
-                        duration: Date.now() - startTime
-                    };
-                } catch {
-                    continue;
-                }
-            }
+            // Try fallback agents (skip for stub)
+            const duration = Date.now() - startTime;
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
 
-            // All failed
+            this.eventBus.emit('STEP_FAIL', {
+                stepId: subtask.id,
+                error: errorMsg,
+                retryable: false
+            }, subtask.id, taskId);
+
             return {
                 subtaskId: subtask.id,
                 agentId: primaryAgent.id,
                 output: '',
                 success: false,
                 confidence: 0,
-                duration: Date.now() - startTime,
-                error: error instanceof Error ? error.message : 'Unknown error'
+                duration,
+                error: errorMsg
             };
         }
     }

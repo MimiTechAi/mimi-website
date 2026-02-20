@@ -205,7 +205,7 @@ describe('ConsensusDetector', () => {
                 url: 'https://example.com/2',
                 title: 'Source 2',
                 snippet: 'AI transforming healthcare',
-                content: 'AI is transforming healthcare with diagnostic tools.',
+                content: 'Artificial intelligence is rapidly transforming various industries including healthcare and finance.',
                 timestamp: Date.now(),
                 credibility: 0.8,
                 sourceType: 'arxiv'

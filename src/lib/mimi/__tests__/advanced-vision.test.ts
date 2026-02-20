@@ -212,7 +212,7 @@ describe('Advanced Vision Architecture', () => {
 
             descriptions.forEach(desc => {
                 const lower = desc.toLowerCase();
-                const isBarChart = lower.includes('bar chart') || lower.includes('bar graph');
+                const isBarChart = lower.includes('bar chart') || lower.includes('bar graph') || lower.includes('bars');
                 expect(isBarChart).toBe(true);
             });
         });

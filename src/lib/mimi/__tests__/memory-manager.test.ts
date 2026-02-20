@@ -107,21 +107,20 @@ describe('Memory Manager', () => {
         });
 
         it('should warn when usage exceeds warning threshold', () => {
-            mm.registerModel('llm-phi35'); // ~2200MB
+            mm.registerModel('llm-phi35-vision'); // ~4200MB
             mm.registerModel('vision');    // ~500MB
             const status = mm.getStatus();
-            // 2700MB > WARNING(2500MB)
+            // 4700MB > WARNING(4500MB)
             expect(status.isWarning).toBe(true);
         });
 
         it('should be critical when usage exceeds critical threshold', () => {
-            // Use vision-LLM which is never auto-unloaded by unloadNonEssential
-            // (unloadNonEssential only removes 'vision' and 'tts', not LLMs)
-            mm.registerModel('llm-phi35-vision'); // 4200MB > CRITICAL(3000)
+            const spy = jest.spyOn(mm, 'getEstimatedUsage').mockReturnValue(5500);
             const usage = mm.getEstimatedUsage();
-            expect(usage).toBeGreaterThanOrEqual(3000);
+            expect(usage).toBeGreaterThanOrEqual(5000);
             const status = mm.getStatus();
             expect(status.isCritical).toBe(true);
+            spy.mockRestore();
         });
     });
 

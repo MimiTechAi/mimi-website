@@ -50,7 +50,7 @@ export function MimiPageLayout() {
             <div className="glow-6" />
 
             {/* 3-Panel Workspace */}
-            <div className={`mimi-workspace${ctx.sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+            <div className={`mimi-workspace${ctx.sidebarCollapsed ? ' sidebar-collapsed' : ''}${ctx.isVirtualComputerOpen ? ' sandbox-open' : ''}`}>
                 <TaskListPanel />
                 <ChatPanel />
                 <VirtualSandboxPanel />

@@ -152,7 +152,28 @@ const AgentThinkingBar = memo(({
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2 }}
                     >
-                        <pre>{thinkingContent}</pre>
+                        <div className="manus-task-tree">
+                            {thinkingContent.split('\n').filter(line => line.trim().length > 0).map((line, idx, arr) => {
+                                // If the overall status is not complete, the last parsed line is considered 'active'
+                                const isNodeActive = status !== 'complete' && idx === arr.length - 1;
+                                return (
+                                    <motion.div
+                                        key={idx}
+                                        className={`manus-tree-node ${isNodeActive ? 'active' : 'done'}`}
+                                        initial={{ opacity: 0, x: -10 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ duration: 0.3, delay: idx * 0.05 }}
+                                    >
+                                        <div className={`manus-tree-icon ${isNodeActive ? 'active' : 'done'}`}>
+                                            {!isNodeActive && <CheckCircle2 size={10} color="#000" />}
+                                        </div>
+                                        <div className="manus-tree-content">
+                                            {line}
+                                        </div>
+                                    </motion.div>
+                                );
+                            })}
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>

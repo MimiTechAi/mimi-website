@@ -1,21 +1,25 @@
 /**
- * MIMI Agent -- Typed Tool Registry V1.0
+ * MIMI Agent -- Typed Tool Registry V2.0
  *
- * Replaces the string-based handler references in tool-definitions.ts
- * with a fully typed dispatch map. Each tool handler is registered with
- * its parameter and result types, enabling compile-time safety.
+ * Unified tool dispatch with AgentComputer integration.
+ * All code execution, file operations, and shell commands
+ * route through the AgentComputer engine for unified
+ * terminal history, process tracking, and event streaming.
  *
- * Architecture:
- * - ToolHandler<P, R>: Generic typed handler interface
- * - ToolRegistry: Singleton registry with typed register/execute
- * - Built-in tools pre-registered on init
- * - External tool context injection for runtime-provided handlers
+ * V2 Changes:
+ * - AgentComputer as unified execution backend
+ * - New tools: browse_url, execute_shell, update_plan, delete_file, move_file
+ * - HTML-to-text extraction for browse_url
+ * - Manus-style todo.md scratchpad via update_plan
  *
  * © 2026 MIMI Tech AI. All rights reserved.
  */
 
 import type { ToolCall, ToolResult, ToolDefinition } from './tool-definitions';
 import { TOOL_DEFINITIONS, validateToolCall, executeWebSearch } from './tool-definitions';
+import { getAgentComputer } from './agent-computer';
+import { getMimiNetwork } from './workspace/networking';
+import { getMimiFilesystem } from './workspace/filesystem';
 
 // ═══════════════════════════════════════════════════════════
 // TYPES
@@ -36,6 +40,8 @@ export interface ToolExecutionContext {
     readFile?: (path: string) => Promise<string>;
     writeFile?: (path: string, content: string) => Promise<void>;
     listFiles?: (path?: string) => Promise<string[]>;
+    deleteFile?: (path: string) => Promise<void>;
+    moveFile?: (source: string, destination: string) => Promise<void>;
 }
 
 interface RegisteredTool {
@@ -73,7 +79,23 @@ const handleCalculate: ToolHandler = async (params) => {
     }
 };
 
+// ── Code Execution (routed through AgentComputer) ────────
+
 const handleExecutePython: ToolHandler = async (params, ctx) => {
+    // Try AgentComputer first (unified engine with terminal + process tracking)
+    try {
+        const computer = getAgentComputer();
+        if (computer.isReady) {
+            const result = await computer.executePython(params.code as string);
+            return {
+                success: result.success,
+                output: result.output || result.error || 'No output',
+                data: result
+            };
+        }
+    } catch { /* fall through to context */ }
+
+    // Fallback to injected context
     if (!ctx.executePython) {
         return { success: false, output: 'Python runtime not available' };
     }
@@ -84,6 +106,148 @@ const handleExecutePython: ToolHandler = async (params, ctx) => {
         return { success: false, output: `Python error: ${e}` };
     }
 };
+
+const handleExecuteJavaScript: ToolHandler = async (params, ctx) => {
+    // Try AgentComputer first
+    try {
+        const computer = getAgentComputer();
+        if (computer.isReady) {
+            const result = await computer.executeJavaScript(params.code as string);
+            return {
+                success: result.success,
+                output: result.output || result.error || 'No output',
+                data: result
+            };
+        }
+    } catch { /* fall through */ }
+
+    if (!ctx.executeJavaScript) {
+        return { success: false, output: 'JavaScript sandbox not available' };
+    }
+    try {
+        const result = await ctx.executeJavaScript(params.code as string);
+        return { success: true, output: result };
+    } catch (e: unknown) {
+        return { success: false, output: `JavaScript error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+const handleExecuteSql: ToolHandler = async (params, ctx) => {
+    if (!ctx.executeSql) {
+        return { success: false, output: 'SQL engine not available' };
+    }
+    try {
+        const result = await ctx.executeSql(params.query as string);
+        return { success: true, output: result };
+    } catch (e: unknown) {
+        return { success: false, output: `SQL error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+// ── Shell Execution (AgentComputer only) ─────────────────
+
+const handleExecuteShell: ToolHandler = async (params) => {
+    try {
+        const computer = getAgentComputer();
+        if (!computer.isReady) {
+            // Auto-boot if not ready
+            await computer.boot();
+        }
+        const result = await computer.executeShell(params.command as string);
+        return {
+            success: result.exitCode === 0,
+            output: result.output || '(no output)',
+            data: { exitCode: result.exitCode }
+        };
+    } catch (e: unknown) {
+        return { success: false, output: `Shell error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+// ── Browse URL (fetch + HTML-to-text) ────────────────────
+
+const handleBrowseUrl: ToolHandler = async (params) => {
+    const url = params.url as string;
+    const extract = (params.extract as string) || 'text';
+
+    try {
+        const net = getMimiNetwork();
+        const result = await net.fetch(url, { cache: true });
+
+        if (!result.ok) {
+            return { success: false, output: `Failed to fetch ${url}: HTTP ${result.status} ${result.statusText}` };
+        }
+
+        const rawHtml = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
+
+        // Extract content based on mode
+        let output = '';
+
+        if (extract === 'links' || extract === 'all') {
+            const links = extractLinks(rawHtml, url);
+            output += `## Links found on ${url}\n\n`;
+            for (const link of links.slice(0, 30)) {
+                output += `- [${link.text}](${link.href})\n`;
+            }
+        }
+
+        if (extract === 'text' || extract === 'all') {
+            const text = htmlToText(rawHtml);
+            if (extract === 'all') output += '\n---\n\n## Page Content\n\n';
+            // Truncate to ~4000 chars to fit in context window
+            output += text.slice(0, 4000);
+            if (text.length > 4000) {
+                output += `\n\n... (${text.length - 4000} more characters truncated)`;
+            }
+        }
+
+        return {
+            success: true,
+            output: output || 'Page loaded but no extractable content found.',
+            data: { url, status: result.status, contentLength: rawHtml.length, responseTime: result.responseTime }
+        };
+    } catch (e: unknown) {
+        return { success: false, output: `Browse error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+// ── Update Plan (Manus-style todo.md scratchpad) ─────────
+
+const handleUpdatePlan: ToolHandler = async (params) => {
+    const tasks = params.tasks as Array<{ label: string; status?: string; done?: boolean }>;
+    const title = (params.title as string) || 'MIMI Task Plan';
+
+    try {
+        const fs = getMimiFilesystem();
+
+        // Build markdown todo
+        let md = `# ${title}\n\n`;
+        md += `> Updated: ${new Date().toLocaleString('de-DE')}\n\n`;
+
+        for (const task of tasks) {
+            const status = task.status || (task.done ? 'done' : 'pending');
+            const icon = status === 'done' ? '✅' : status === 'in_progress' ? '🔄' : '⬜';
+            const checkbox = status === 'done' ? '[x]' : status === 'in_progress' ? '[/]' : '[ ]';
+            md += `- ${checkbox} ${icon} ${task.label}\n`;
+        }
+
+        // Write to workspace
+        await fs.writeFile('/workspace/.mimi/todo.md', md);
+
+        const done = tasks.filter(t => t.status === 'done' || t.done).length;
+        const total = tasks.length;
+
+        return {
+            success: true,
+            output: `📋 Plan updated: ${done}/${total} tasks complete.\n\n${md}`,
+            data: { path: '/workspace/.mimi/todo.md', done, total }
+        };
+    } catch (e: unknown) {
+        return { success: false, output: `Plan update failed: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+// ── Document & Image Handlers ────────────────────────────
 
 const handleSearchDocuments: ToolHandler = async (params, ctx) => {
     if (!ctx.searchDocuments) {
@@ -143,31 +307,18 @@ const handleCreateFile: ToolHandler = async (params, ctx) => {
     }
 };
 
-const handleExecuteJavaScript: ToolHandler = async (params, ctx) => {
-    if (!ctx.executeJavaScript) {
-        return { success: false, output: 'JavaScript sandbox not available' };
-    }
-    try {
-        const result = await ctx.executeJavaScript(params.code as string);
-        return { success: true, output: result };
-    } catch (e: unknown) {
-        return { success: false, output: `JavaScript error: ${e instanceof Error ? e.message : String(e)}` };
-    }
-};
-
-const handleExecuteSql: ToolHandler = async (params, ctx) => {
-    if (!ctx.executeSql) {
-        return { success: false, output: 'SQL engine not available' };
-    }
-    try {
-        const result = await ctx.executeSql(params.query as string);
-        return { success: true, output: result };
-    } catch (e: unknown) {
-        return { success: false, output: `SQL error: ${e instanceof Error ? e.message : String(e)}` };
-    }
-};
+// ── File Operations (AgentComputer-backed) ───────────────
 
 const handleReadFile: ToolHandler = async (params, ctx) => {
+    // Try AgentComputer filesystem first
+    try {
+        const computer = getAgentComputer();
+        if (computer.isReady) {
+            const content = await computer.readFile(params.path as string);
+            return { success: true, output: content };
+        }
+    } catch { /* fall through */ }
+
     if (!ctx.readFile) {
         return { success: false, output: 'File read not available' };
     }
@@ -180,6 +331,15 @@ const handleReadFile: ToolHandler = async (params, ctx) => {
 };
 
 const handleWriteFile: ToolHandler = async (params, ctx) => {
+    // Try AgentComputer filesystem first
+    try {
+        const computer = getAgentComputer();
+        if (computer.isReady) {
+            await computer.writeFile(params.path as string, params.content as string);
+            return { success: true, output: `File "${params.path}" written successfully.` };
+        }
+    } catch { /* fall through */ }
+
     if (!ctx.writeFile) {
         return { success: false, output: 'File write not available' };
     }
@@ -192,6 +352,23 @@ const handleWriteFile: ToolHandler = async (params, ctx) => {
 };
 
 const handleListFiles: ToolHandler = async (params, ctx) => {
+    // Try AgentComputer filesystem first
+    try {
+        const computer = getAgentComputer();
+        if (computer.isReady) {
+            const entries = await computer.listFiles(params.path as string | undefined);
+            const fileNames = entries.map(e =>
+                `${e.isDirectory ? '📁' : '📄'} ${e.name}${e.size ? ` (${e.size}B)` : ''}`
+            );
+            return {
+                success: true,
+                output: fileNames.length > 0
+                    ? `📁 Files:\n${fileNames.map(f => `  - ${f}`).join('\n')}`
+                    : 'Directory is empty.'
+            };
+        }
+    } catch { /* fall through */ }
+
     if (!ctx.listFiles) {
         return { success: false, output: 'File listing not available' };
     }
@@ -207,6 +384,152 @@ const handleListFiles: ToolHandler = async (params, ctx) => {
         return { success: false, output: `File listing error: ${e instanceof Error ? e.message : String(e)}` };
     }
 };
+
+const handleDeleteFile: ToolHandler = async (params, ctx) => {
+    const path = params.path as string;
+    // Try AgentComputer first
+    try {
+        const computer = getAgentComputer();
+        if (computer.isReady) {
+            const fs = getMimiFilesystem();
+            await fs.deleteFile(path);
+            return { success: true, output: `🗑️ Deleted: ${path}` };
+        }
+    } catch { /* fall through */ }
+
+    if (ctx.deleteFile) {
+        try {
+            await ctx.deleteFile(path);
+            return { success: true, output: `🗑️ Deleted: ${path}` };
+        } catch (e: unknown) {
+            return { success: false, output: `Delete error: ${e instanceof Error ? e.message : String(e)}` };
+        }
+    }
+    // Direct filesystem fallback
+    try {
+        const fs = getMimiFilesystem();
+        await fs.deleteFile(path);
+        return { success: true, output: `🗑️ Deleted: ${path}` };
+    } catch (e: unknown) {
+        return { success: false, output: `Delete error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+const handleMoveFile: ToolHandler = async (params, ctx) => {
+    const source = params.source as string;
+    const destination = params.destination as string;
+
+    // Try context first
+    if (ctx.moveFile) {
+        try {
+            await ctx.moveFile(source, destination);
+            return { success: true, output: `📦 Moved: ${source} → ${destination}` };
+        } catch (e: unknown) {
+            return { success: false, output: `Move error: ${e instanceof Error ? e.message : String(e)}` };
+        }
+    }
+
+    // Direct filesystem (rename)
+    try {
+        const fs = getMimiFilesystem();
+        await fs.rename(source, destination);
+        return { success: true, output: `📦 Moved: ${source} → ${destination}` };
+    } catch (e: unknown) {
+        return { success: false, output: `Move error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+// HTML-TO-TEXT UTILITIES (for browse_url)
+// ═══════════════════════════════════════════════════════════
+
+function htmlToText(html: string): string {
+    let text = html;
+
+    // Remove script and style blocks entirely
+    text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    text = text.replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '');
+
+    // Convert headings to markdown
+    text = text.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, content) => {
+        return '\n' + '#'.repeat(Number(level)) + ' ' + stripTags(content).trim() + '\n';
+    });
+
+    // Convert paragraphs & divs to double newlines
+    text = text.replace(/<\/(p|div|article|section|main|header|footer)>/gi, '\n\n');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+
+    // Convert links to markdown
+    text = text.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, content) => {
+        const linkText = stripTags(content).trim();
+        return linkText ? `[${linkText}](${href})` : '';
+    });
+
+    // Convert lists
+    text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, content) => {
+        return '• ' + stripTags(content).trim() + '\n';
+    });
+
+    // Remove all remaining tags
+    text = stripTags(text);
+
+    // Decode HTML entities
+    text = text
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ');
+
+    // Collapse whitespace
+    text = text.replace(/[ \t]+/g, ' ');
+    text = text.replace(/\n{3,}/g, '\n\n');
+    text = text.trim();
+
+    return text;
+}
+
+function stripTags(html: string): string {
+    return html.replace(/<[^>]*>/g, '');
+}
+
+interface ExtractedLink {
+    text: string;
+    href: string;
+}
+
+function extractLinks(html: string, baseUrl: string): ExtractedLink[] {
+    const links: ExtractedLink[] = [];
+    const seen = new Set<string>();
+    const pattern = /<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+
+    while ((match = pattern.exec(html)) !== null) {
+        let href = match[1];
+        const text = stripTags(match[2]).trim();
+
+        // Skip anchors, javascript, mailto
+        if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:')) {
+            continue;
+        }
+
+        // Resolve relative URLs
+        try {
+            href = new URL(href, baseUrl).href;
+        } catch {
+            continue;
+        }
+
+        if (!seen.has(href) && text.length > 0) {
+            seen.add(href);
+            links.push({ text: text.slice(0, 100), href });
+        }
+    }
+
+    return links;
+}
 
 // ═══════════════════════════════════════════════════════════
 // REGISTRY
@@ -233,6 +556,12 @@ export class ToolRegistry {
             'readFile': handleReadFile,
             'writeFile': handleWriteFile,
             'listFiles': handleListFiles,
+            // V4 — Manus AI Parity
+            'browseUrl': handleBrowseUrl,
+            'executeShell': handleExecuteShell,
+            'updatePlan': handleUpdatePlan,
+            'deleteFile': handleDeleteFile,
+            'moveFile': handleMoveFile,
         };
 
         for (const def of TOOL_DEFINITIONS) {

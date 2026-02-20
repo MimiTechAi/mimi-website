@@ -64,6 +64,8 @@ interface ToolPill {
     messageIndex: number; // M2: which assistant message (by index) triggered this tool
 }
 
+export type ComputerView = 'idle' | 'browsing' | 'coding' | 'terminal' | 'planning' | 'file-manager';
+
 export interface MimiAgentContextValue {
     // Engine
     engine: UseMimiEngineReturn;
@@ -105,9 +107,10 @@ export interface MimiAgentContextValue {
     setSearchQuery: (q: string) => void;
     groupedConversations: { label: string; items: ConversationSummary[] }[];
 
-    // Sandbox
-    activeTab: "browser" | "terminal" | "editor" | "files";
-    setActiveTab: (tab: "browser" | "terminal" | "editor" | "files") => void;
+    // Computer View (Manus-style unified)
+    computerView: ComputerView;
+    activeTab: "browser" | "terminal" | "editor" | "files" | "feed";
+    setActiveTab: (tab: "browser" | "terminal" | "editor" | "files" | "feed") => void;
     codeArtifacts: CodeArtifact[];
     activeArtifactIdx: number;
     setActiveArtifactIdx: (idx: number) => void;
@@ -124,10 +127,13 @@ export interface MimiAgentContextValue {
     setActiveDetectedArtifact: (a: DetectedArtifact | null) => void;
     openArtifact: (a: DetectedArtifact) => void;
     closeArtifact: () => void;
+    openFileInEditor: (filename: string, content: string, language: string) => void;
 
     // UI
     sidebarCollapsed: boolean;
     setSidebarCollapsed: (v: boolean | ((prev: boolean) => boolean)) => void;
+    isVirtualComputerOpen: boolean;
+    setVirtualComputerOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
     showSettings: boolean;
     setShowSettings: (v: boolean) => void;
     confirmDeleteId: string | null;
@@ -193,8 +199,8 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
 
-    // Sandbox tabs
-    const [activeTab, setActiveTab] = useState<"browser" | "terminal" | "editor" | "files">("browser");
+    // Sandbox tabs (backward compat — derived from computerView)
+    const [activeTab, setActiveTab] = useState<"browser" | "terminal" | "editor" | "files" | "feed">("browser");
 
     // Agent elapsed time
     const [agentElapsedTime, setAgentElapsedTime] = useState(0);
@@ -226,7 +232,15 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     const [showSettings, setShowSettings] = useState(false);
     const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [isVirtualComputerOpen, setVirtualComputerOpen] = useState(false);
     const toastIdRef = useRef(0);
+
+    // Auto-open Virtual Computer when agent takes action
+    useEffect(() => {
+        if (agentEvents.activeTool || agentEvents.recentFiles.length > 0 || codeArtifacts.length > 0) {
+            setVirtualComputerOpen(true);
+        }
+    }, [agentEvents.activeTool, agentEvents.recentFiles.length, codeArtifacts.length]);
 
     // Artifact Panel state
     const [activeDetectedArtifact, setActiveDetectedArtifact] = useState<DetectedArtifact | null>(null);
@@ -238,6 +252,29 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
 
     const closeArtifact = useCallback(() => {
         setActiveDetectedArtifact(null);
+    }, []);
+
+    // Manual override for computerView (Phase 2: code routing from chat)
+    const [computerViewOverride, setComputerViewOverride] = useState<ComputerView | null>(null);
+
+    const openFileInEditor = useCallback((filename: string, content: string, language: string) => {
+        // Create a code artifact
+        const newArtifact: CodeArtifact = {
+            content: content,
+            language,
+            filename,
+            timestamp: Date.now(),
+        };
+        setCodeArtifacts(prev => {
+            const updated = [...prev, newArtifact];
+            setActiveArtifactIdx(updated.length - 1);
+            return updated;
+        });
+        // Switch to coding view and open computer
+        setComputerViewOverride('coding');
+        setVirtualComputerOpen(true);
+        // Auto-clear override after 10s so auto-detection resumes
+        setTimeout(() => setComputerViewOverride(null), 10000);
     }, []);
 
     // ── Load conversations ──────────────────────────────────────
@@ -271,14 +308,17 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
     }, [engine.agentStatus]);
 
     // ── Auto-scroll messages ────────────────────────────────────
-    // Use manual scrollTop instead of scrollIntoView to prevent scroll
+    // Use manual scrollTo instead of scrollIntoView to prevent scroll
     // propagation to mimi-outer-wrap (which has overflow from glow elements)
     useEffect(() => {
         const el = messagesEndRef.current;
         if (!el) return;
         const container = el.closest('.chat-messages');
         if (container) {
-            container.scrollTop = container.scrollHeight;
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: 'smooth'
+            });
         }
     }, [messages, currentResponse]);
 
@@ -734,6 +774,28 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         return null;
     }, [agentEvents.activePlan]);
 
+    // ── Manus-style Computer View — auto-derive from agent events ──
+    const computerView = useMemo<ComputerView>(() => {
+        // Manual override takes priority (e.g. user clicked "Im Editor öffnen")
+        if (computerViewOverride) return computerViewOverride;
+        // Active tool determines view
+        if (agentEvents.activeTool) {
+            const toolName = typeof agentEvents.activeTool === 'object'
+                ? agentEvents.activeTool.toolName
+                : String(agentEvents.activeTool);
+            if (toolName === 'web_search' || toolName.includes('read_url') || toolName.includes('browse')) return 'browsing';
+            if (toolName === 'execute_python' || toolName === 'execute_javascript' || toolName === 'execute_sql' || toolName === 'run_command') return 'terminal';
+            if (toolName === 'create_file' || toolName === 'write_file' || toolName.includes('replace')) return 'coding';
+        }
+        // Browser content available → show browsing
+        if (browserContent && isGenerating) return 'browsing';
+        // Active plan in planning phase
+        if (agentEvents.activePlan && agentEvents.activePlan.status === 'planning') return 'planning';
+        // Currently thinking/generating → planning view with task tree
+        if (agentEvents.isThinking || isGenerating) return 'planning';
+        return 'idle';
+    }, [computerViewOverride, agentEvents.activeTool, agentEvents.activePlan, agentEvents.isThinking, browserContent, isGenerating]);
+
     // Derive swarm agents from agentEvents for the AgentSwarmPanel
     const activeSwarmAgents = useMemo<string[]>(() => {
         const agents: string[] = [];
@@ -797,6 +859,7 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         agentEvents,
         messages, input, setInput, currentResponse, isGenerating,
         handleSend, handleNewConversation,
+        computerView,
         handleDeleteConversation, handleRenameConversation,
         handleCopyMessage, handleRetryMessage,
         conversations, activeConversationId, setActiveConversationId,
@@ -806,7 +869,7 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         generatedFiles, terminalLines, browserContent,
         completedToolPills, taskCompleted, agentElapsedTime,
         detectedArtifacts, activeDetectedArtifact, setActiveDetectedArtifact,
-        openArtifact, closeArtifact,
+        openArtifact, closeArtifact, openFileInEditor,
         sidebarCollapsed, setSidebarCollapsed,
         showSettings, setShowSettings,
         confirmDeleteId, setConfirmDeleteId,
@@ -817,28 +880,55 @@ export function MimiAgentProvider({ children }: { children: React.ReactNode }) {
         activeSwarmAgents,
         statusText, isReady, isIdle, progressSteps,
         messagesEndRef, textareaRef,
+        // Agent Swarm
+        // activeSwarmAgents, // This was a duplicate, removed.
+
+
+
+        // Refs
+        // messagesEndRef, // This was a duplicate, removed.
+        // textareaRef, // This was a duplicate, removed.
+        isVirtualComputerOpen, setVirtualComputerOpen,
     }), [
-        engine, agentEvents,
-        messages, input, currentResponse, isGenerating,
+        engine,
+        agentEvents,
+        messages,
+        input,
+        currentResponse,
+        isGenerating,
         handleSend, handleNewConversation,
         handleDeleteConversation, handleRenameConversation,
         handleCopyMessage, handleRetryMessage,
-        conversations, activeConversationId,
-        searchQuery, groupedConversations,
-        activeTab,
-        codeArtifacts, activeArtifactIdx,
-        generatedFiles, terminalLines, browserContent,
-        completedToolPills, taskCompleted, agentElapsedTime,
-        detectedArtifacts, activeDetectedArtifact,
-        openArtifact, closeArtifact,
-        sidebarCollapsed,
-        showSettings,
-        confirmDeleteId,
-        editingConvId, editingTitle,
+        conversations,
+        activeConversationId, setActiveConversationId,
+        searchQuery, setSearchQuery,
+        groupedConversations,
+        computerView,
+        activeTab, setActiveTab,
+        agentElapsedTime,
+        codeArtifacts,
+        activeArtifactIdx, setActiveArtifactIdx,
+        generatedFiles,
+        terminalLines,
+        browserContent,
+        completedToolPills,
+        taskCompleted,
+        editingConvId, setEditingConvId,
+        editingTitle, setEditingTitle,
+        confirmDeleteId, setConfirmDeleteId,
+        showSettings, setShowSettings,
         toasts, addToast,
+        sidebarCollapsed, setSidebarCollapsed,
+        isVirtualComputerOpen, setVirtualComputerOpen,
         memoryToasts, showMemoryToast, dismissMemoryToast,
         activeSwarmAgents,
-        statusText, isReady, isIdle, progressSteps,
+        statusText,
+        isIdle,
+        progressSteps,
+        activeDetectedArtifact, setActiveDetectedArtifact,
+        openArtifact, closeArtifact, openFileInEditor,
+        messagesEndRef,
+        textareaRef,
     ]);
 
     return (

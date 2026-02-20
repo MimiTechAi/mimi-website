@@ -1,0 +1,48 @@
+
+/Users/sanji/Desktop/mimi-website/src/components/mimi-workspace/CodeEditor.tsx
+  15:1  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-namespace')
+
+/Users/sanji/Desktop/mimi-website/src/components/mimi/MimiChat.tsx
+  635:9  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+  685:9  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+
+/Users/sanji/Desktop/mimi-website/src/hooks/mimi/useChatState.ts
+  159:13  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+
+/Users/sanji/Desktop/mimi-website/src/hooks/mimi/useMimiEngine.ts
+  187:29  warning  Unused eslint-disable directive (no problems were reported from 'no-new-func')
+  352:9   warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/agent-events.ts
+  140:1  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/file-generator.ts
+  188:5   warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+  235:13  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/performance-optimizer.ts
+  201:9  error  Do not assign to the variable `module`. See: https://nextjs.org/docs/messages/no-assign-module-variable  @next/next/no-assign-module-variable
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/tool-definitions.ts
+  1032:9  warning  Unused eslint-disable directive (no problems were reported from 'no-new-func')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/tool-registry.ts
+  65:9  warning  Unused eslint-disable directive (no problems were reported from 'no-new-func')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/voice-input.ts
+  34:1  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+  76:5  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/workspace/services/database.ts
+   93:9   warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+  115:13  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+
+/Users/sanji/Desktop/mimi-website/src/lib/mimi/workspace/vcs/git.ts
+  48:5  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+
+/Users/sanji/Desktop/mimi-website/src/visual-edits/VisualEditsMessenger.tsx
+  1:1  warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+
+✖ 18 problems (1 error, 17 warnings)
+  0 errors and 17 warnings potentially fixable with the `--fix` option.
+

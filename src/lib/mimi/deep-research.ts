@@ -186,17 +186,13 @@ export class ConsensusDetector {
         const claims: ResearchClaim[] = [];
 
         sources.forEach(source => {
-            // Extract 1-3 claims per source
-            const claimCount = Math.min(3, Math.floor(source.content.length / 100));
-
-            for (let i = 0; i < claimCount; i++) {
-                claims.push({
-                    claim: `Claim ${i + 1} from ${source.title}`,
-                    sources: [source.id],
-                    confidence: source.credibility,
-                    category: 'uncertain' // Will be categorized later
-                });
-            }
+            // Always extract at least 1 claim, use snippet/content logic
+            claims.push({
+                claim: source.content || source.snippet || `Claim from ${source.title}`,
+                sources: [source.id],
+                confidence: source.credibility,
+                category: 'uncertain' // Will be categorized later
+            });
         });
 
         return claims;

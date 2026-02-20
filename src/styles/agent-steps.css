@@ -569,6 +569,118 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
+   MANUS-STYLE VISUAL TASK TREE
+   ═══════════════════════════════════════════════════════════ */
+
+.manus-task-tree {
+    padding: 14px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 212, 255, 0.3) transparent;
+}
+
+.manus-task-tree::-webkit-scrollbar {
+    width: 4px;
+}
+
+.manus-task-tree::-webkit-scrollbar-thumb {
+    background: rgba(0, 212, 255, 0.3);
+    border-radius: 4px;
+}
+
+.manus-tree-node {
+    display: flex;
+    gap: 16px;
+    position: relative;
+    padding-bottom: 16px;
+}
+
+.manus-tree-node:last-child {
+    padding-bottom: 4px;
+}
+
+/* Vertical glowing connector line */
+.manus-tree-node:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    /* center of the 16px icon */
+    top: 24px;
+    bottom: -4px;
+    width: 2px;
+    background: linear-gradient(to bottom, rgba(0, 212, 255, 0.6), rgba(0, 212, 255, 0.1));
+    border-radius: 1px;
+    box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+}
+
+.manus-tree-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+    background: #0a0a14;
+}
+
+.manus-tree-icon.done {
+    background: #00d4ff;
+    color: #000;
+    box-shadow: 0 0 12px rgba(0, 212, 255, 0.6);
+}
+
+.manus-tree-icon.active {
+    background: transparent;
+    border: 2px solid #8a2be2;
+    box-shadow: 0 0 15px rgba(138, 43, 226, 0.8), inset 0 0 10px rgba(138, 43, 226, 0.5);
+    animation: activePulse 1.5s infinite;
+}
+
+.manus-tree-icon.active::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: #8a2be2;
+    border-radius: 50%;
+}
+
+@keyframes activePulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 15px rgba(138, 43, 226, 0.8), inset 0 0 10px rgba(138, 43, 226, 0.5);
+        transform: scale(1);
+    }
+
+    50% {
+        box-shadow: 0 0 25px rgba(138, 43, 226, 1), inset 0 0 15px rgba(138, 43, 226, 0.8);
+        transform: scale(1.1);
+    }
+}
+
+.manus-tree-content {
+    flex: 1;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: 'JetBrains Mono', monospace;
+    word-break: break-word;
+}
+
+.manus-tree-node.active .manus-tree-content {
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 0 10px rgba(138, 43, 226, 0.4);
+}
+
+/* ═══════════════════════════════════════════════════════════
    REDUCED MOTION
    ═══════════════════════════════════════════════════════════ */
 
@@ -576,7 +688,8 @@
 
     .steps-progress-fill,
     .step-progress-fill,
-    .thinking-bar-glow {
+    .thinking-bar-glow,
+    .manus-tree-icon.active {
         animation: none;
     }
 

@@ -199,6 +199,91 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         ],
         handler: 'listFiles'
     },
+    // ─── V4 TOOLS — Manus AI Parity ─────────────────────────────
+    {
+        name: 'browse_url',
+        description: 'Besucht eine Webseite und extrahiert den Text-Inhalt. Nutze dies um Webseiten zu lesen, Artikel zu analysieren oder Daten von URLs zu sammeln.',
+        parameters: [
+            {
+                name: 'url',
+                type: 'string',
+                description: 'Die URL der Webseite, z.B. "https://example.com/article"',
+                required: true
+            },
+            {
+                name: 'extract',
+                type: 'string',
+                description: 'Was extrahiert werden soll: "text" (nur Text), "links" (nur Links), "all" (beides)',
+                required: false,
+                enum: ['text', 'links', 'all']
+            }
+        ],
+        handler: 'browseUrl'
+    },
+    {
+        name: 'execute_shell',
+        description: 'Führt Shell-Kommandos im virtuellen Computer aus. Unterstützt: ls, cat, mkdir, rm, cp, mv, echo, pwd, whoami, date, pip install, curl, wc, head, tail, grep, find.',
+        parameters: [
+            {
+                name: 'command',
+                type: 'string',
+                description: 'Das Shell-Kommando, z.B. "ls -la /workspace" oder "pip install requests"',
+                required: true
+            }
+        ],
+        handler: 'executeShell'
+    },
+    {
+        name: 'update_plan',
+        description: 'Erstellt oder aktualisiert den Aufgabenplan (todo.md). Nutze dies bei komplexen Aufgaben um den Fortschritt zu tracken. Jede Aufgabe hat einen Status: pending, in_progress, oder done.',
+        parameters: [
+            {
+                name: 'tasks',
+                type: 'array',
+                description: 'Array von Aufgaben: [{"label": "Daten sammeln", "status": "done"}, {"label": "Analyse", "status": "in_progress"}]',
+                required: true
+            },
+            {
+                name: 'title',
+                type: 'string',
+                description: 'Optionaler Titel für den Plan',
+                required: false
+            }
+        ],
+        handler: 'updatePlan'
+    },
+    {
+        name: 'delete_file',
+        description: 'Löscht eine Datei oder einen leeren Ordner aus dem Workspace.',
+        parameters: [
+            {
+                name: 'path',
+                type: 'string',
+                description: 'Pfad der zu löschenden Datei, z.B. "temp/old_data.csv"',
+                required: true
+            }
+        ],
+        handler: 'deleteFile'
+    },
+    {
+        name: 'move_file',
+        description: 'Verschiebt oder benennt eine Datei im Workspace um.',
+        parameters: [
+            {
+                name: 'source',
+                type: 'string',
+                description: 'Aktueller Pfad der Datei, z.B. "old_name.py"',
+                required: true
+            },
+            {
+                name: 'destination',
+                type: 'string',
+                description: 'Neuer Pfad der Datei, z.B. "src/new_name.py"',
+                required: true
+            }
+        ],
+        handler: 'moveFile'
+    },
 ];
 
 /**
@@ -221,10 +306,15 @@ export function getToolDescriptionsForPrompt(): string {
     desc += '- Frage/Erklärung/Liste/Plan → **Kein Tool** (direkt Text schreiben)\n';
     desc += '- Mathe (2+2, 100*5) → **calculate**\n';
     desc += '- Internet/Recherche/News → **web_search**\n';
-    desc += '- Chart/Diagramm/Plot → **Python** (```python Block)\n';
+    desc += '- Website/URL lesen/analysieren → **browse_url**\n';
+    desc += '- Shell/Terminal/Pip/Curl → **execute_shell**\n';
+    desc += '- Chart/Diagramm/Plot → **execute_python**\n';
     desc += '- PDF durchsuchen → **search_documents**\n';
     desc += '- Bild analysieren → **analyze_image**\n';
     desc += '- Datei zum Download → **create_file**\n';
+    desc += '- Datei löschen → **delete_file**\n';
+    desc += '- Datei verschieben/umbenennen → **move_file**\n';
+    desc += '- Komplexe Aufgabe planen → **update_plan** (erstelle Plan, dann arbeite Schritte ab)\n';
     desc += '\n**Format:** ```json\n{"tool": "name", "parameters": {"key": "value"}}\n```\n';
     return desc;
 }

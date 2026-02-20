@@ -198,10 +198,10 @@ export class LazyLoader {
         }
 
         // Load module
-        const module = await import(/* @vite-ignore */ modulePath);
+        const loadedModule = await import(/* @vite-ignore */ modulePath);
         this.loadedModules.add(modulePath);
 
-        return module as T;
+        return loadedModule as T;
     }
 
     /**

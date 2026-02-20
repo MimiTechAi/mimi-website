@@ -41,7 +41,7 @@ describe('Model Definitions', () => {
 
     it('should include a small model (SMALL key)', () => {
         expect(MODELS.SMALL).toBeDefined();
-        expect(MODELS.SMALL.name).toContain('Llama');
+        expect(MODELS.SMALL.name).toContain('Qwen');
     });
 
     it('should include a balanced model (BALANCED key)', () => {
@@ -51,7 +51,7 @@ describe('Model Definitions', () => {
 
     it('should include a full model (FULL key)', () => {
         expect(MODELS.FULL).toBeDefined();
-        expect(MODELS.FULL.name).toContain('Phi');
+        expect(MODELS.FULL.name).toContain('Qwen');
     });
 
     it('should include a vision model (VISION_FULL key)', () => {

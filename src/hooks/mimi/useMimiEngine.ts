@@ -145,6 +145,8 @@ export function useMimiEngine(): UseMimiEngineReturn {
                         console.warn(`[MIMI] ⚠️ Modell ${modelId} fehlgeschlagen:`, modelErr);
                         // Terminate failed worker before retrying
                         engineRef.current.terminate();
+                        // SOTA 2026: VRAM Flush Delay
+                        await new Promise(resolve => setTimeout(resolve, 800));
                         if (modelId === fallbackChain[fallbackChain.length - 1]) {
                             // All models failed
                             throw modelErr;
@@ -185,12 +187,12 @@ export function useMimiEngine(): UseMimiEngineReturn {
                         // Execute JS in a sandboxed Function scope (no access to page DOM)
                         try {
                             // eslint-disable-next-line no-new-func
-                            const fn = new Function('"use strict";\n' + code);
+                            const fn = new Function('window', 'document', 'fetch', 'localStorage', 'sessionStorage', '"use strict";\n' + code);
                             const logs: string[] = [];
                             const origLog = console.log;
                             console.log = (...args: any[]) => logs.push(args.map(String).join(' '));
                             try {
-                                const result = fn();
+                                const result = fn(undefined, undefined, undefined, undefined, undefined);
                                 console.log = origLog;
                                 const output = logs.length > 0 ? logs.join('\n') : String(result ?? '(Keine Ausgabe)');
                                 return output;
@@ -438,7 +440,9 @@ export function useMimiEngine(): UseMimiEngineReturn {
 
                     // Terminate current engine and re-init with smaller model
                     engineRef.current.terminate();
-                    setLoadingStatus(`Wechsle zu ${nextModel.split('-').slice(0, 3).join(' ')}...`);
+                    // SOTA 2026: Explicit delay to allow WebGPU/Garbage Collector to flush VRAM
+                    setLoadingStatus(`Flushing VRAM... wechsle zu ${nextModel.split('-').slice(0, 3).join(' ')}...`);
+                    await new Promise(resolve => setTimeout(resolve, 800));
 
                     try {
                         await engineRef.current.init(nextModel, (progress) => {
@@ -459,10 +463,24 @@ export function useMimiEngine(): UseMimiEngineReturn {
                 }
             }
 
-            // Trim history to prevent context window overflow (keep last 40 messages)
+            // Trim history to prevent context window overflow
+            // 1. Max 40 messages
             if (chatHistoryRef.current.length > 40) {
                 chatHistoryRef.current = chatHistoryRef.current.slice(-40);
-                console.info('[MIMI] Konversationskontext auf 40 Nachrichten gekürzt');
+            }
+
+            // 2. Max ~30,000 characters total to avoid WebGPU context length OOM (approx 8k tokens)
+            let totalChars = chatHistoryRef.current.reduce((sum, msg) => sum + msg.content.length, 0);
+            let dropped = 0;
+            while (totalChars > 30000 && chatHistoryRef.current.length > 2) {
+                const removedMsg = chatHistoryRef.current.shift();
+                if (removedMsg) {
+                    totalChars -= removedMsg.content.length;
+                    dropped++;
+                }
+            }
+            if (dropped > 0) {
+                console.info(`[MIMI] Konversationskontext um ${dropped} ältere Nachrichten gekürzt (OOM Schutz)`);
             }
         } finally {
             setIsGenerating(false);
