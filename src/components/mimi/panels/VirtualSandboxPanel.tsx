@@ -33,7 +33,8 @@ import {
     Settings, AlertCircle, Loader2, Monitor, Wifi, WifiOff,
     Cpu, ListTodo, Code, Eye, Zap, Activity, Clock,
     ArrowLeft, ArrowRight, RotateCw, Shield, Hash,
-    Layers, Database, Network, ChevronUp, Sparkles
+    Layers, Database, Network, ChevronUp, Sparkles,
+    Upload, Notebook, GripVertical, X
 } from "lucide-react";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react").then(mod => mod.default), {
@@ -70,6 +71,7 @@ const VIEW_COLORS: Record<ComputerView, string> = {
     'coding': '#a855f7',
     'planning': '#f59e0b',
     'file-manager': '#06b6d4',
+    'scratchpad': '#f97316',
 };
 
 const VIEW_ICONS: Record<ComputerView, typeof Monitor> = {
@@ -79,6 +81,7 @@ const VIEW_ICONS: Record<ComputerView, typeof Monitor> = {
     'coding': Code,
     'planning': ListTodo,
     'file-manager': FileCode2,
+    'scratchpad': Notebook,
 };
 
 const VIEW_LABELS: Record<ComputerView, string> = {
@@ -88,6 +91,7 @@ const VIEW_LABELS: Record<ComputerView, string> = {
     'coding': 'Editor',
     'planning': 'Task Execution',
     'file-manager': 'File Manager',
+    'scratchpad': 'Scratchpad',
 };
 
 // ── Activity Timeline Entry Type ────────────────────────────
@@ -120,6 +124,21 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
     const [timelineOpen, setTimelineOpen] = useState(false);
     const [prevView, setPrevView] = useState<ComputerView>(view);
     const [viewKey, setViewKey] = useState(0);
+
+    // ── Split View State ──────────────────────────────────────
+    const [splitMode, setSplitMode] = useState(false);
+    const [splitRatio, setSplitRatio] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('mimi-split-ratio');
+            return saved ? parseFloat(saved) : 0.5;
+        }
+        return 0.5;
+    });
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('mimi-split-ratio', String(splitRatio));
+        }
+    }, [splitRatio]);
 
     // ── Auto-boot AgentComputer ──────────────────────────────
     useEffect(() => {
@@ -316,12 +335,22 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
 
                     {/* Auto-switching views based on computerView */}
                     <div key={viewKey} className={`computer-view-content view-${view}`} style={{ '--view-color': viewColor } as React.CSSProperties}>
-                        {view === 'browsing' && <BrowserView />}
-                        {view === 'terminal' && <TerminalView />}
-                        {view === 'coding' && <EditorView />}
-                        {view === 'planning' && <PlanningView />}
-                        {view === 'idle' && <IdleView />}
-                        {view === 'file-manager' && <FileManagerView />}
+                        {splitMode ? (
+                            <SplitViewContainer ratio={splitRatio} onRatioChange={setSplitRatio}>
+                                <TerminalView />
+                                <EditorView />
+                            </SplitViewContainer>
+                        ) : (
+                            <>
+                                {view === 'browsing' && <BrowserView />}
+                                {view === 'terminal' && <TerminalView />}
+                                {view === 'coding' && <EditorView />}
+                                {view === 'planning' && <PlanningView />}
+                                {view === 'idle' && <IdleView />}
+                                {view === 'file-manager' && <FileManagerView />}
+                                {view === 'scratchpad' && <ScratchpadView />}
+                            </>
+                        )}
                     </div>
 
                     {/* ── Activity Timeline Overlay ── */}
@@ -347,7 +376,17 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
                 </div>
 
                 {/* ── Resource Status Bar ─────────────── */}
-                <ResourceStatusBar />
+                <div className="panel-bottom-bar">
+                    <button
+                        className={`split-toggle-btn${splitMode ? ' active' : ''}`}
+                        onClick={() => setSplitMode(prev => !prev)}
+                        title={splitMode ? 'Split View beenden' : 'Terminal + Editor nebeneinander'}
+                    >
+                        <GripVertical className="w-3.5 h-3.5" />
+                        <span>Split</span>
+                    </button>
+                    <ResourceStatusBar />
+                </div>
             </div>
         </AgentComputerCtx.Provider>
     );
@@ -769,7 +808,12 @@ function TerminalView() {
     const ctx = useMimiAgentContext();
     const { state: computer, actions } = useComputer();
     const termEndRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const [inputCmd, setInputCmd] = useState('');
+    const [isExecuting, setIsExecuting] = useState(false);
+    const [cmdHistory, setCmdHistory] = useState<string[]>([]);
+    const [historyIdx, setHistoryIdx] = useState(-1);
+    const activeProcessId = useRef<string | null>(null);
 
     // Merge real AgentComputer terminal output with legacy ctx.terminalLines
     const mergedLines = useMemo(() => {
@@ -788,15 +832,81 @@ function TerminalView() {
         termEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [mergedLines]);
 
+    // Auto-focus input on mount
+    useEffect(() => { inputRef.current?.focus(); }, []);
+
+    // Detect when running process finishes → re-enable input
+    useEffect(() => {
+        if (activeProcessId.current && computer.runningProcesses.every(p => p.id !== activeProcessId.current)) {
+            setIsExecuting(false);
+            activeProcessId.current = null;
+            inputRef.current?.focus();
+        }
+    }, [computer.runningProcesses]);
+
     const handleShellSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!inputCmd.trim()) return;
+        if (!inputCmd.trim() || isExecuting) return;
         const cmd = inputCmd.trim();
         setInputCmd('');
+        setIsExecuting(true);
+
+        // Push to history (max 50)
+        setCmdHistory(prev => {
+            const next = [cmd, ...prev.filter(c => c !== cmd)].slice(0, 50);
+            return next;
+        });
+        setHistoryIdx(-1);
+
         try {
+            // Track the process ID for cancel support
+            const latestBefore = computer.processes.length;
             await actions.executeShell(cmd);
-        } catch { /* displayed in terminal */ }
-    }, [inputCmd, actions]);
+            // Check if a new process was spawned
+            if (computer.processes.length > latestBefore) {
+                activeProcessId.current = computer.processes[computer.processes.length - 1]?.id ?? null;
+            }
+        } catch { /* output displayed in terminal */ }
+        setIsExecuting(false);
+        inputRef.current?.focus();
+    }, [inputCmd, isExecuting, actions, computer.processes]);
+
+    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+        // Ctrl+C → kill running process
+        if (e.ctrlKey && e.key === 'c') {
+            e.preventDefault();
+            if (isExecuting && activeProcessId.current) {
+                actions.killProcess(activeProcessId.current);
+                activeProcessId.current = null;
+                setIsExecuting(false);
+            } else if (inputCmd) {
+                setInputCmd('');
+            }
+            return;
+        }
+        // Arrow Up → older command
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (cmdHistory.length === 0) return;
+            const newIdx = Math.min(historyIdx + 1, cmdHistory.length - 1);
+            setHistoryIdx(newIdx);
+            setInputCmd(cmdHistory[newIdx]);
+            return;
+        }
+        // Arrow Down → newer command
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIdx <= 0) {
+                setHistoryIdx(-1);
+                setInputCmd('');
+            } else {
+                const newIdx = historyIdx - 1;
+                setHistoryIdx(newIdx);
+                setInputCmd(cmdHistory[newIdx]);
+            }
+            return;
+        }
+    }, [isExecuting, inputCmd, cmdHistory, historyIdx, actions]);
 
     return (
         <div className="computer-terminal-view">
@@ -832,25 +942,48 @@ function TerminalView() {
                         <span className="msg" style={{ opacity: 0.4 }}>Warte auf Code-Ausführung...</span>
                     </div>
                 )}
-                {/* Blinking cursor */}
+                {/* Blinking cursor / running indicator */}
                 <div className="terminal-cursor-line">
                     <span className="prefix" style={{ color: '#22c55e' }}>mimi@agent:~$</span>{" "}
-                    <span className="terminal-block-cursor" />
+                    {isExecuting ? (
+                        <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#f59e0b', display: 'inline' }} />
+                    ) : (
+                        <span className="terminal-block-cursor" />
+                    )}
                 </div>
                 <div ref={termEndRef} />
             </div>
-            {/* ── Terminal Input ── */}
+            {/* ── Enhanced Terminal Input ── */}
             <form className="terminal-input-bar" onSubmit={handleShellSubmit}>
-                <span className="terminal-input-prompt">$</span>
+                <span className="terminal-input-prompt">{isExecuting ? '⏳' : '$'}</span>
                 <input
+                    ref={inputRef}
                     type="text"
                     className="terminal-input-field"
-                    placeholder="Befehl eingeben..."
+                    placeholder={isExecuting ? 'Ausführung läuft… (Ctrl+C zum Abbrechen)' : 'Befehl eingeben…'}
                     value={inputCmd}
                     onChange={e => setInputCmd(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={isExecuting}
                     autoComplete="off"
                     spellCheck={false}
                 />
+                {isExecuting && (
+                    <button
+                        type="button"
+                        className="terminal-cancel-btn"
+                        title="Ctrl+C: Abbrechen"
+                        onClick={() => {
+                            if (activeProcessId.current) {
+                                actions.killProcess(activeProcessId.current);
+                                activeProcessId.current = null;
+                                setIsExecuting(false);
+                            }
+                        }}
+                    >
+                        <X className="w-3 h-3" />
+                    </button>
+                )}
             </form>
         </div>
     );
@@ -1040,13 +1173,15 @@ function PlanningView() {
 }
 
 // ═════════════════════════════════════════════════════════════
-// VIEW: FILE MANAGER — Generated files overview
+// VIEW: FILE MANAGER — OPFS files + artifacts + DRAG & DROP UPLOAD
 // ═════════════════════════════════════════════════════════════
 
 function FileManagerView() {
     const ctx = useMimiAgentContext();
     const { state: computer, actions } = useComputer();
     const [opfsFiles, setOpfsFiles] = useState<{ name: string; isDirectory: boolean; size?: number }[]>([]);
+    const [isDragging, setIsDragging] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<{ name: string; pct: number } | null>(null);
 
     // Load real OPFS files from AgentComputer
     useEffect(() => {
@@ -1063,8 +1198,64 @@ function FileManagerView() {
 
     const totalFiles = ctx.codeArtifacts.length + ctx.generatedFiles.length + opfsFiles.length;
 
+    // ── Drag & Drop handlers ──
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    }, []);
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    }, []);
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        for (const file of files) {
+            setUploadProgress({ name: file.name, pct: 0 });
+            try {
+                const text = await file.text();
+                // Simulate progress
+                setUploadProgress({ name: file.name, pct: 50 });
+                await actions.writeFile(`uploads/${file.name}`, text);
+                setUploadProgress({ name: file.name, pct: 100 });
+            } catch { /* skip */ }
+        }
+        // Refresh file list
+        try {
+            const entries = await actions.listFiles();
+            setOpfsFiles(entries);
+        } catch { /* skip */ }
+        setTimeout(() => setUploadProgress(null), 1200);
+    }, [actions]);
+
     return (
-        <div className="computer-files-view">
+        <div
+            className="computer-files-view"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {/* ── Upload Drop Zone ── */}
+            {isDragging && (
+                <div className="file-drop-overlay">
+                    <Upload className="w-8 h-8" style={{ color: '#00d4ff' }} />
+                    <span>Datei ablegen → /workspace/uploads/</span>
+                </div>
+            )}
+
+            {/* ── Upload Progress ── */}
+            {uploadProgress && (
+                <div className="upload-progress-bar">
+                    <span>{uploadProgress.name}</span>
+                    <div className="upload-progress-track">
+                        <div className="upload-progress-fill" style={{ width: `${uploadProgress.pct}%` }} />
+                    </div>
+                    <span>{uploadProgress.pct}%</span>
+                </div>
+            )}
+
             <div className="files-header">
                 <FileCode2 className="w-4 h-4 text-brand-cyan" />
                 <span>Workspace ({totalFiles} Dateien)</span>
@@ -1144,8 +1335,186 @@ function FileManagerView() {
                 <div className="files-empty-state">
                     <FileCode2 className="w-6 h-6" style={{ opacity: 0.3 }} />
                     <span>Noch keine Dateien erstellt</span>
+                    <p className="files-empty-hint">Dateien hierher ziehen zum Hochladen</p>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ═════════════════════════════════════════════════════════════
+// VIEW: SCRATCHPAD — Read-only OPFS notes viewer
+// ═════════════════════════════════════════════════════════════
+
+const SCRATCHPAD_FILES = ['todo.md', 'notes.md', 'context.md'];
+
+function ScratchpadView() {
+    const ctx = useMimiAgentContext();
+    const { state: computer, actions } = useComputer();
+    const [files, setFiles] = useState<{ name: string; content: string; lastModified: number }[]>([]);
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+    // Poll OPFS files every 2 seconds for auto-refresh
+    useEffect(() => {
+        if (!computer.isReady) return;
+        let cancelled = false;
+
+        const loadFiles = async () => {
+            const loaded: { name: string; content: string; lastModified: number }[] = [];
+            for (const name of SCRATCHPAD_FILES) {
+                try {
+                    const content = await actions.readFile(name);
+                    loaded.push({ name, content, lastModified: Date.now() });
+                } catch {
+                    // File doesn't exist yet
+                }
+            }
+            if (!cancelled) setFiles(loaded);
+        };
+
+        loadFiles();
+        const interval = setInterval(loadFiles, 2000);
+        return () => { cancelled = true; clearInterval(interval); };
+    }, [computer.isReady, actions]);
+
+    const toggleSection = useCallback((name: string) => {
+        setCollapsed(prev => ({ ...prev, [name]: !prev[name] }));
+    }, []);
+
+    const copyContent = useCallback((content: string, name: string) => {
+        navigator.clipboard.writeText(content)
+            .then(() => ctx.addToast(`${name} kopiert`))
+            .catch(() => ctx.addToast('Kopieren fehlgeschlagen'));
+    }, [ctx]);
+
+    // Render todo.md as checklist
+    const renderContent = useCallback((name: string, content: string) => {
+        if (name === 'todo.md') {
+            return (
+                <div className="scratchpad-checklist">
+                    {content.split('\n').map((line, i) => {
+                        const checked = /^\s*-\s*\[x\]/i.test(line);
+                        const unchecked = /^\s*-\s*\[\s*\]/.test(line);
+                        const text = line.replace(/^\s*-\s*\[[ x]\]\s*/i, '');
+                        if (checked || unchecked) {
+                            return (
+                                <div key={i} className={`scratchpad-todo-item${checked ? ' done' : ''}`}>
+                                    <span className="scratchpad-checkbox">{checked ? '☑' : '☐'}</span>
+                                    <span className="scratchpad-todo-text">{text}</span>
+                                </div>
+                            );
+                        }
+                        if (line.trim().startsWith('#')) {
+                            return <div key={i} className="scratchpad-heading">{line.replace(/^#+\s*/, '')}</div>;
+                        }
+                        return line.trim() ? <div key={i} className="scratchpad-line">{line}</div> : null;
+                    })}
+                </div>
+            );
+        }
+        return <pre className="scratchpad-text">{content}</pre>;
+    }, []);
+
+    return (
+        <div className="scratchpad-view">
+            <div className="scratchpad-header">
+                <Notebook className="w-4 h-4" style={{ color: '#f97316' }} />
+                <span>Agent Scratchpad</span>
+                <span className="scratchpad-badge">Read-only</span>
+            </div>
+
+            <div className="scratchpad-sections">
+                {SCRATCHPAD_FILES.map(name => {
+                    const file = files.find(f => f.name === name);
+                    const isCollapsed = collapsed[name] ?? false;
+                    const timeStr = file ? new Date(file.lastModified).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+
+                    return (
+                        <div key={name} className="scratchpad-section">
+                            <div className="scratchpad-section-header" onClick={() => toggleSection(name)}>
+                                {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                <span className="scratchpad-section-name">{name}</span>
+                                {file && <span className="scratchpad-section-time">{timeStr}</span>}
+                                {file && (
+                                    <button
+                                        className="scratchpad-copy-btn"
+                                        title="Inhalt kopieren"
+                                        onClick={(e) => { e.stopPropagation(); copyContent(file.content, name); }}
+                                    >
+                                        <Copy className="w-3 h-3" />
+                                    </button>
+                                )}
+                                {!file && <span className="scratchpad-section-empty">—</span>}
+                            </div>
+                            {!isCollapsed && (
+                                <div className="scratchpad-section-body">
+                                    {file ? (
+                                        renderContent(name, file.content)
+                                    ) : (
+                                        <div className="scratchpad-placeholder">
+                                            Agent hasn&apos;t created <code>{name}</code> yet
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+// ═════════════════════════════════════════════════════════════
+// COMPONENT: Split View Container — Draggable horizontal split
+// ═════════════════════════════════════════════════════════════
+
+interface SplitViewProps {
+    ratio: number;
+    onRatioChange: (r: number) => void;
+    children: [React.ReactNode, React.ReactNode];
+}
+
+function SplitViewContainer({ ratio, onRatioChange, children }: SplitViewProps) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const isDragging = useRef(false);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        isDragging.current = true;
+
+        const handleMouseMove = (ev: MouseEvent) => {
+            if (!isDragging.current || !containerRef.current) return;
+            const rect = containerRef.current.getBoundingClientRect();
+            const x = ev.clientX - rect.left;
+            const newRatio = Math.max(0.2, Math.min(0.8, x / rect.width));
+            onRatioChange(newRatio);
+        };
+
+        const handleMouseUp = () => {
+            isDragging.current = false;
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    }, [onRatioChange]);
+
+    return (
+        <div className="split-view-container" ref={containerRef}>
+            <div className="split-pane split-left" style={{ width: `${ratio * 100}%` }}>
+                {children[0]}
+            </div>
+            <div
+                className="split-divider"
+                onMouseDown={handleMouseDown}
+            >
+                <GripVertical className="w-3 h-3" />
+            </div>
+            <div className="split-pane split-right" style={{ width: `${(1 - ratio) * 100}%` }}>
+                {children[1]}
+            </div>
         </div>
     );
 }
