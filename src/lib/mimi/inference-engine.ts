@@ -250,7 +250,16 @@ export class MimiEngine {
                     appConfig: {
                         model_list: webllm.prebuiltAppConfig.model_list.map(m =>
                             m.model_id === modelId
-                                ? { ...m, overrides: { ...m.overrides, context_window_size: 6144 } }
+                                ? {
+                                    ...m,
+                                    overrides: {
+                                        ...m.overrides,
+                                        // Dynamic context window: small models get 6144, larger models get 32K
+                                        context_window_size: MimiEngine.isSmallModel(modelId) ? 6144 : 32768,
+                                        // Enable sliding window for large prompts
+                                        sliding_window_size: MimiEngine.isSmallModel(modelId) ? 4096 : 16384,
+                                    }
+                                }
                                 : m
                         ),
                         useIndexedDBCache: true,
@@ -598,15 +607,57 @@ export class MimiEngine {
 
         // V3: Direct streaming via WebLLM's official API
         // No polling, no messageHandlers, no tokenQueue — just async iteration
-        const stream = await this.engine.chat.completions.create({
-            messages: fullMessages as webllm.ChatCompletionMessageParam[],
-            temperature: options?.temperature ?? 0.7,
-            // SOTA 2026: 4096 instead of 2048 — Qwen3 supports 32K ctx, 2048 cut answers short
-            max_tokens: options?.maxTokens ?? 4096,
-            top_p: 0.95,
-            stream: true,
-            stream_options: { include_usage: false }
-        });
+        // FIX: Dynamic max_tokens — never exceed context window
+        const contextWindowSize = this.isLowEndModel() ? 6144 : 32768;
+        const estimatedPromptTokens = fullMessages.reduce(
+            (sum, m) => sum + Math.ceil((m.content?.length || 0) / 3.5), 0
+        );
+        const safetyMargin = 128;
+        const maxAvailableTokens = Math.max(256, contextWindowSize - estimatedPromptTokens - safetyMargin);
+        const effectiveMaxTokens = Math.min(options?.maxTokens ?? 4096, maxAvailableTokens);
+
+        if (estimatedPromptTokens > contextWindowSize - 256) {
+            console.warn(`[MIMI] ⚠️ Prompt (~${estimatedPromptTokens} tokens) near context limit (${contextWindowSize}). Trimming old messages.`);
+            // Trim: keep system + last 3 messages
+            const systemMsg = fullMessages.find(m => m.role === 'system');
+            const recentMsgs = fullMessages.filter(m => m.role !== 'system').slice(-3);
+            fullMessages = systemMsg ? [systemMsg, ...recentMsgs] : recentMsgs;
+        }
+
+        let stream;
+        try {
+            stream = await this.engine.chat.completions.create({
+                messages: fullMessages as webllm.ChatCompletionMessageParam[],
+                temperature: options?.temperature ?? 0.7,
+                max_tokens: effectiveMaxTokens,
+                top_p: 0.95,
+                stream: true,
+                stream_options: { include_usage: false }
+            });
+        } catch (e: unknown) {
+            // FIX: Catch ContextWindowSizeExceeded and retry with minimal prompt
+            if (e instanceof Error && e.message?.includes('context window')) {
+                console.warn('[MIMI] ⚠️ Context window exceeded, retrying with trimmed prompt');
+                const systemMsg = fullMessages.find(m => m.role === 'system');
+                const lastMsg = fullMessages.filter(m => m.role !== 'system').slice(-1);
+                // Truncate system prompt to 1500 chars for emergency mode
+                const trimmedSystem = systemMsg
+                    ? { ...systemMsg, content: systemMsg.content.slice(0, 1500) + '\n\n[System prompt truncated due to context limit]' }
+                    : null;
+                const emergencyMessages = trimmedSystem ? [trimmedSystem, ...lastMsg] : lastMsg;
+
+                stream = await this.engine.chat.completions.create({
+                    messages: emergencyMessages as webllm.ChatCompletionMessageParam[],
+                    temperature: options?.temperature ?? 0.7,
+                    max_tokens: Math.min(1024, effectiveMaxTokens),
+                    top_p: 0.95,
+                    stream: true,
+                    stream_options: { include_usage: false }
+                });
+            } else {
+                throw e;
+            }
+        }
 
         for await (const chunk of stream) {
             const token = chunk.choices[0]?.delta?.content ?? '';
@@ -1155,12 +1206,18 @@ export class MimiEngine {
      */
     private isLowEndModel(): boolean {
         if (!this.currentModel) return false;
-        const m = this.currentModel.toLowerCase();
-        // Qwen3-0.6B und 1.7B: zu klein für komplexen System-Prompt
-        // Qwen2.5-0.5B und Llama-3.2-1B: Legacy Low-End
-        return m.includes('qwen3-0.6b') || m.includes('qwen3-1.7b') ||
-            m.includes('0.6b') || m.includes('1.7b') ||
-            m.includes('qwen2.5-0.5b') || m.includes('llama-3.2-1b');
+        return MimiEngine.isSmallModel(this.currentModel);
+    }
+
+    /**
+     * Static model size check — used during init AND runtime.
+     * Small models (≤4B params) get reduced context window.
+     */
+    private static isSmallModel(modelId: string): boolean {
+        const m = modelId.toLowerCase();
+        return m.includes('0.5b') || m.includes('0.6b') || m.includes('1.7b')
+            || m.includes('1b') || m.includes('3b')
+            || m.includes('qwen2.5-0.5b') || m.includes('llama-3.2-1b');
     }
 
     /**
