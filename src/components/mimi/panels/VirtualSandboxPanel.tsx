@@ -116,7 +116,8 @@ function useComputer() { return useContext(AgentComputerCtx)!; }
 export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
     const ctx = useMimiAgentContext();
     const [computer, computerActions] = useAgentComputer();
-    const view = ctx.computerView;
+    const [localViewOverride, setLocalViewOverride] = useState<ComputerView | null>(null);
+    const view = localViewOverride ?? ctx.computerView;
     const viewColor = VIEW_COLORS[view];
     const ViewIcon = VIEW_ICONS[view];
     const viewLabel = VIEW_LABELS[view];
@@ -124,6 +125,13 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
     const [timelineOpen, setTimelineOpen] = useState(false);
     const [prevView, setPrevView] = useState<ComputerView>(view);
     const [viewKey, setViewKey] = useState(0);
+
+    // Auto-clear local override after 15s so auto-detection resumes
+    useEffect(() => {
+        if (!localViewOverride) return;
+        const t = setTimeout(() => setLocalViewOverride(null), 15000);
+        return () => clearTimeout(t);
+    }, [localViewOverride]);
 
     // ── Split View State ──────────────────────────────────────
     const [splitMode, setSplitMode] = useState(false);
@@ -320,6 +328,15 @@ export const VirtualSandboxPanel = memo(function VirtualSandboxPanel() {
                         title={taskTreeOpen ? 'Task Tree ausblenden' : 'Task Tree anzeigen'}
                     >
                         <ListTodo className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Scratchpad toggle */}
+                    <button
+                        className={`task-tree-toggle${view === 'scratchpad' ? ' active' : ''}`}
+                        onClick={() => setLocalViewOverride(view === 'scratchpad' ? null : 'scratchpad')}
+                        title="Scratchpad anzeigen"
+                    >
+                        <Notebook className="w-3.5 h-3.5" />
                     </button>
                 </div>
 
